@@ -1,0 +1,144 @@
+<svg width="2100" height="999" viewBox="0 0 2100 999" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#898781"/>
+  </marker>
+  <marker id="arrowhead-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#2a78d6"/>
+  </marker>
+  <marker id="arrowhead-aqua" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#1baf7a"/>
+  </marker>
+</defs>
+<rect x="0" y="0" width="2100" height="999" fill="#f9f9f7"/>
+
+<text x="1050.0" y="42" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="27" font-weight="700" font-style="normal" fill="#0b0b0b" text-anchor="middle">Sequence-Aware Spiking Gate + 2.5D U-Net Cascade</text>
+<text x="1050.0" y="68" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="14.5" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">End-to-end inference architecture — AdrenalSegmentationPipeline (src/inference/pipeline.py)</text>
+<rect x="40" y="380" width="150" height="140" rx="14" fill="#eeeeec" stroke="rgba(11,11,11,0.10)" stroke-width="1.5"/>
+<text x="115.0" y="414" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="13" font-weight="600" font-style="normal" fill="#898781" text-anchor="middle">Input</text>
+<text x="115.0" y="438" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="15.5" font-weight="700" font-style="normal" fill="#0b0b0b" text-anchor="middle">CT volume</text>
+<text x="115.0" y="458" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">(DICOM /</text>
+<text x="115.0" y="474" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">NIfTI)</text>
+<rect x="95" y="480" width="30" height="20" rx="3" fill="#ffffff" stroke="#898781" stroke-width="1.2"/>
+<rect x="101" y="486" width="30" height="20" rx="3" fill="#ffffff" stroke="#898781" stroke-width="1.2"/>
+<rect x="107" y="492" width="30" height="20" rx="3" fill="#ffffff" stroke="#898781" stroke-width="1.2"/>
+<path d="M194,450 L226,450" fill="none" stroke="#898781" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="230" y="380" width="190" height="140" rx="14" fill="#eeeeec" stroke="rgba(11,11,11,0.10)" stroke-width="1.5"/>
+<text x="325.0" y="408" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="10.5" font-weight="700" font-style="normal" fill="#898781" text-anchor="middle" letter-spacing="0.4">STAGE 0 · deterministic</text>
+<text x="325.0" y="432" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="15.5" font-weight="700" font-style="normal" fill="#0b0b0b" text-anchor="middle">Preprocessing</text>
+<text x="325.0" y="456" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.8" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">Resample to isotropic spacing</text>
+<text x="325.0" y="473" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.8" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">HU window [-135, 215]</text>
+<text x="325.0" y="490" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.8" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">Zero-mean / unit-var normalise</text>
+<path d="M424,450 L456,450" fill="none" stroke="#898781" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="460" y="140" width="580" height="537" rx="18" fill="#eaf1fb" stroke="none"/>
+<rect x="460" y="140" width="580" height="537" rx="18" fill="none" stroke="#2a78d6" stroke-width="2.5"/>
+<text x="750.0" y="170" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="10.5" font-weight="700" font-style="normal" fill="#2a78d6" text-anchor="middle" letter-spacing="0.4">STAGE A · trainable · novel contribution</text>
+<text x="750.0" y="196" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="17" font-weight="700" font-style="normal" fill="#0b0b0b" text-anchor="middle">Sequence-Aware Spiking Slice Gate</text>
+<text x="750.0" y="217" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.5" font-weight="400" font-style="italic" fill="#52514e" text-anchor="middle">SpikingSliceGate — src/models/snn_gate.py</text>
+<text x="750.0" y="239" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.3" font-weight="400" font-style="italic" fill="#52514e" text-anchor="middle">k consecutive craniocaudal slices, each one discrete SNN time step — not one slice repeated k times</text>
+<rect x="500.0" y="265" width="62" height="62" rx="8" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<ellipse cx="531.0" cy="296.0" rx="22" ry="16" fill="none" stroke="#898781" stroke-width="1.2"/>
+<ellipse cx="531.0" cy="296.0" rx="10" ry="7" fill="none" stroke="#898781" stroke-width="1.2"/>
+<text x="531.0" y="347" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="700" font-style="normal" fill="#2a78d6" text-anchor="middle">t1</text>
+<rect x="609.5" y="265" width="62" height="62" rx="8" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<ellipse cx="640.5" cy="296.0" rx="22" ry="16" fill="none" stroke="#898781" stroke-width="1.2"/>
+<ellipse cx="640.5" cy="296.0" rx="10" ry="7" fill="none" stroke="#898781" stroke-width="1.2"/>
+<text x="640.5" y="347" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="700" font-style="normal" fill="#2a78d6" text-anchor="middle">t2</text>
+<rect x="719.0" y="265" width="62" height="62" rx="8" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<ellipse cx="750.0" cy="296.0" rx="22" ry="16" fill="none" stroke="#898781" stroke-width="1.2"/>
+<ellipse cx="750.0" cy="296.0" rx="10" ry="7" fill="none" stroke="#898781" stroke-width="1.2"/>
+<text x="750.0" y="347" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="700" font-style="normal" fill="#2a78d6" text-anchor="middle">t3</text>
+<rect x="828.5" y="265" width="62" height="62" rx="8" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<ellipse cx="859.5" cy="296.0" rx="22" ry="16" fill="none" stroke="#898781" stroke-width="1.2"/>
+<ellipse cx="859.5" cy="296.0" rx="10" ry="7" fill="none" stroke="#898781" stroke-width="1.2"/>
+<text x="859.5" y="347" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="700" font-style="normal" fill="#2a78d6" text-anchor="middle">t4</text>
+<rect x="938.0" y="265" width="62" height="62" rx="8" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<ellipse cx="969.0" cy="296.0" rx="22" ry="16" fill="none" stroke="#898781" stroke-width="1.2"/>
+<ellipse cx="969.0" cy="296.0" rx="10" ry="7" fill="none" stroke="#898781" stroke-width="1.2"/>
+<text x="969.0" y="347" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="700" font-style="normal" fill="#2a78d6" text-anchor="middle">t5</text>
+<path d="M531.0,375 L531.0,405" fill="none" stroke="#2a78d6" stroke-width="1.6" marker-end="url(#arrowhead)"/>
+<path d="M640.5,375 L640.5,405" fill="none" stroke="#2a78d6" stroke-width="1.6" marker-end="url(#arrowhead)"/>
+<path d="M750.0,375 L750.0,405" fill="none" stroke="#2a78d6" stroke-width="1.6" marker-end="url(#arrowhead)"/>
+<path d="M859.5,375 L859.5,405" fill="none" stroke="#2a78d6" stroke-width="1.6" marker-end="url(#arrowhead)"/>
+<path d="M969.0,375 L969.0,405" fill="none" stroke="#2a78d6" stroke-width="1.6" marker-end="url(#arrowhead)"/>
+<rect x="500" y="415" width="500" height="58" rx="8" fill="#ffffff" stroke="#2a78d6" stroke-width="1.6"/>
+<text x="750.0" y="439" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.3" font-weight="700" font-style="normal" fill="#0b0b0b" text-anchor="middle">Spiking residual conv blocks</text>
+<text x="750.0" y="459" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">LIF neurons (β=0.9) — membrane potential carried across t=1…k</text>
+<path d="M750.0,477 L750.0,503" fill="none" stroke="#2a78d6" stroke-width="1.8" marker-end="url(#arrowhead)"/>
+<rect x="590" y="507" width="320" height="40" rx="8" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
+<text x="750.0" y="532.0" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.8" font-weight="600" font-style="normal" fill="#0b0b0b" text-anchor="middle">Rate-coded readout (mean spikes over k steps)</text>
+<path d="M750.0,551 L750.0,577" fill="none" stroke="#2a78d6" stroke-width="1.8" marker-end="url(#arrowhead)"/>
+<rect x="500.0" y="581" width="150" height="42" rx="21" fill="#2a78d6" stroke="none" stroke-width="1.5"/>
+<text x="575.0" y="607.0" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="700" font-style="normal" fill="#ffffff" text-anchor="middle">left_present</text>
+<rect x="675.0" y="581" width="150" height="42" rx="21" fill="#2a78d6" stroke="none" stroke-width="1.5"/>
+<text x="750.0" y="607.0" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="700" font-style="normal" fill="#ffffff" text-anchor="middle">right_present</text>
+<rect x="850.0" y="581" width="150" height="42" rx="21" fill="#2a78d6" stroke="none" stroke-width="1.5"/>
+<text x="925.0" y="607.0" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="700" font-style="normal" fill="#ffffff" text-anchor="middle">tumour_present</text>
+<text x="750.0" y="651" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.3" font-weight="400" font-style="italic" fill="#52514e" text-anchor="middle">operating threshold θ selected on validation PR curve for sensitivity ≥ 0.98</text>
+<rect x="460" y="697" width="580" height="112" rx="14" fill="#f4f3f0" stroke="#898781" stroke-width="1.8" stroke-dasharray="6,4"/>
+<text x="750.0" y="723" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="10.3" font-weight="700" font-style="normal" fill="#52514e" text-anchor="middle" letter-spacing="0.4">MANDATORY BASELINE · ablation arm D</text>
+<text x="750.0" y="745" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="14" font-weight="700" font-style="normal" fill="#0b0b0b" text-anchor="middle">Matched-capacity CNN-LSTM gate</text>
+<text x="750.0" y="765" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">Same 5-slice window, comparable parameter count —</text>
+<text x="750.0" y="787" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.3" font-weight="600" font-style="normal" fill="#52514e" text-anchor="middle">Stage A must beat this on Sensitivity / NPV / F2 / PR-AUC, not merely on energy/latency</text>
+<path d="M1010,675 L1010,699" fill="none" stroke="#898781" stroke-width="1.6" stroke-dasharray="3,3" marker-end="url(#arrowhead)"/>
+<text x="1024" y="692.0" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="10.5" font-weight="400" font-style="italic" fill="#898781" text-anchor="start">compare</text>
+<text x="750.0" y="835" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11" font-weight="400" font-style="italic" fill="#898781" text-anchor="middle">Also ablated — Arm C: single-slice gate (k=1, no recurrence)   ·   Arm G: same network, centre slice repeated ×k</text>
+<path d="M1044,602.0 L1076,450" fill="none" stroke="#2a78d6" stroke-width="2.2" marker-end="url(#arrowhead-blue)"/>
+<rect x="1080" y="350" width="210" height="200" rx="16" fill="#fdeee7" stroke="#eb6834" stroke-width="2.2"/>
+<text x="1185.0" y="376" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="10.5" font-weight="700" font-style="normal" fill="#eb6834" text-anchor="middle" letter-spacing="0.4">deterministic</text>
+<text x="1185.0" y="400" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="14.5" font-weight="700" font-style="normal" fill="#0b0b0b" text-anchor="middle">Uncertainty-Aware</text>
+<text x="1185.0" y="418" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="14.5" font-weight="700" font-style="normal" fill="#0b0b0b" text-anchor="middle">Adaptive Buffer</text>
+<text x="1185.0" y="444" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">Fixed ±4 slices, then expand</text>
+<text x="1185.0" y="460" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">while boundary uncertainty</text>
+<text x="1185.0" y="476" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">&gt; 0.15 (cap +6 / side)</text>
+<text x="1185.0" y="534" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="10" font-weight="400" font-style="italic" fill="#898781" text-anchor="middle">uncertainty_buffer.py</text>
+<path d="M1294,450 L1326,450" fill="none" stroke="#898781" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="1356" y="250" width="360" height="400" rx="18" fill="#e7f7f0" stroke="#1baf7a" stroke-width="2.5"/>
+<text x="1536.0" y="280" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="10.5" font-weight="700" font-style="normal" fill="#1baf7a" text-anchor="middle" letter-spacing="0.4">STAGE B · trainable</text>
+<text x="1536.0" y="304" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="16" font-weight="700" font-style="normal" fill="#0b0b0b" text-anchor="middle">Hard-Negative-Aware</text>
+<text x="1536.0" y="324" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="16" font-weight="700" font-style="normal" fill="#0b0b0b" text-anchor="middle">2.5D U-Net Segmenter</text>
+<text x="1536.0" y="344" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11" font-weight="400" font-style="italic" fill="#52514e" text-anchor="middle">unet25d.py (encoder: InceptionV4)</text>
+<rect x="1396" y="368" width="46" height="34" rx="5" fill="#ffffff" stroke="#1baf7a" stroke-width="1.3"/>
+<rect x="1401" y="373" width="46" height="34" rx="5" fill="#ffffff" stroke="#1baf7a" stroke-width="1.3"/>
+<rect x="1406" y="378" width="46" height="34" rx="5" fill="#ffffff" stroke="#1baf7a" stroke-width="1.3"/>
+<rect x="1411" y="383" width="46" height="34" rx="5" fill="#ffffff" stroke="#1baf7a" stroke-width="1.3"/>
+<rect x="1416" y="388" width="46" height="34" rx="5" fill="#ffffff" stroke="#1baf7a" stroke-width="1.3"/>
+<text x="1441" y="434" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="10.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">k slices stacked</text>
+<text x="1441" y="448" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="10.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">as input channels</text>
+<path d="M1492,394 L1566,394" fill="none" stroke="#1baf7a" stroke-width="1.8" marker-end="url(#arrowhead-aqua)"/>
+<path d="M1588,364 L1588,404 L1612,424 L1640,424 L1664,404 L1664,364" fill="none" stroke="#1baf7a" stroke-width="2.4"/>
+<circle cx="1626" cy="412" r="4" fill="#1baf7a"/>
+<text x="1626" y="446" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="10.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">U-Net</text>
+<text x="1536.0" y="500" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11" font-weight="600" font-style="normal" fill="#52514e" text-anchor="middle">training-time hard-negative mining</text>
+<path d="M1536.0,506 L1536.0,468" fill="none" stroke="#1baf7a" stroke-width="1.4" stroke-dasharray="3,3" marker-end="url(#arrowhead-aqua)"/>
+<rect x="1325.0" y="524" width="118" height="28" rx="14.0" fill="#ffffff" stroke="none" stroke-width="1.5"/>
+<text x="1384.0" y="541.96" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11" font-weight="600" font-style="normal" fill="#1baf7a" text-anchor="middle">boundary slices</text>
+<rect x="1457.0" y="524" width="148" height="28" rx="14.0" fill="#ffffff" stroke="none" stroke-width="1.5"/>
+<text x="1531.0" y="541.96" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11" font-weight="600" font-style="normal" fill="#1baf7a" text-anchor="middle">neighbouring organs</text>
+<rect x="1619.0" y="524" width="128" height="28" rx="14.0" fill="#ffffff" stroke="none" stroke-width="1.5"/>
+<text x="1683.0" y="541.96" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11" font-weight="600" font-style="normal" fill="#1baf7a" text-anchor="middle">prior-pipeline FPs</text>
+<text x="1536.0" y="634" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11" font-weight="400" font-style="italic" fill="#52514e" text-anchor="middle">loss: Dice + focal BCE</text>
+<path d="M1720,450 L1752,450" fill="none" stroke="#1baf7a" stroke-width="2.2" marker-end="url(#arrowhead-aqua)"/>
+<rect x="1752" y="380" width="190" height="140" rx="16" fill="#fdf3e1" stroke="#eda100" stroke-width="2.2"/>
+<text x="1847.0" y="406" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="10.5" font-weight="700" font-style="normal" fill="#eda100" text-anchor="middle" letter-spacing="0.4">deterministic</text>
+<text x="1847.0" y="430" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="14.5" font-weight="700" font-style="normal" fill="#0b0b0b" text-anchor="middle">Post-processing</text>
+<text x="1847.0" y="454" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">Test-time augmentation</text>
+<text x="1847.0" y="469" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">(hflip / vflip / rot90)</text>
+<text x="1847.0" y="484" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">+ connected-component pruning</text>
+<path d="M1946,450 L1978,450" fill="none" stroke="#898781" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="1988" y="380" width="74" height="140" rx="14" fill="#eeeeec" stroke="rgba(11,11,11,0.10)" stroke-width="1.5"/>
+<text x="2025.0" y="420" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="13" font-weight="700" font-style="normal" fill="#0b0b0b" text-anchor="middle">Final</text>
+<text x="2025.0" y="438" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="13" font-weight="700" font-style="normal" fill="#0b0b0b" text-anchor="middle">mask</text>
+<text x="2025.0" y="460" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11" font-weight="400" font-style="normal" fill="#52514e" text-anchor="middle">output</text>
+<text x="40" y="895" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11" font-weight="700" font-style="normal" fill="#898781" text-anchor="start" letter-spacing="0.6">KEY</text>
+<rect x="40" y="907" width="22" height="16" rx="3" fill="#2a78d6" stroke="none" stroke-width="1.5"/>
+<text x="70" y="919" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="start">Stage A — trainable</text>
+<rect x="262" y="907" width="22" height="16" rx="3" fill="#eb6834" stroke="none" stroke-width="1.5"/>
+<text x="292" y="919" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="start">Deterministic buffering</text>
+<rect x="516" y="907" width="22" height="16" rx="3" fill="#1baf7a" stroke="none" stroke-width="1.5"/>
+<text x="546" y="919" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="start">Stage B — trainable</text>
+<rect x="738" y="907" width="22" height="16" rx="3" fill="#eda100" stroke="none" stroke-width="1.5"/>
+<text x="768" y="919" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="start">Deterministic post-processing</text>
+<rect x="1050" y="907" width="22" height="16" rx="3" fill="none" stroke="#898781" stroke-width="1.6" stroke-dasharray="4,3"/>
+<text x="1080" y="919" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.3" font-weight="400" font-style="normal" fill="#52514e" text-anchor="start">Ablation-only baseline (not deployed)</text>
+<text x="1050.0" y="969" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.5" font-weight="400" font-style="italic" fill="#898781" text-anchor="middle">Figure 1 — implemented as AdrenalSegmentationPipeline (src/inference/pipeline.py); ablation arms A–H each toggle one highlighted component (see methodology.docx §4.2).</text>

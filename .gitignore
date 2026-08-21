@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+data/
+*.nii
+*.nii.gz
+*.dcm
+checkpoints/
+runs/
+outputs/
+.DS_Store

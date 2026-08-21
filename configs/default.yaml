@@ -1,0 +1,88 @@
+# Default experiment configuration.
+#
+# Dataset decision (confirmed with the user, see docs/methodology.docx and
+# claude/methodology-summary.md in the project):
+#   - Primary: AMOS22 (500 labeled CT scans; separate "left adrenal gland" /
+#     "right adrenal gland" label classes among 15 organs) — same dataset the
+#     2025 prior-pipeline paper used, so Dice results stay comparable.
+#     https://zenodo.org/records/7262581 (amos22.zip, 24.2 GB) and/or register
+#     at https://amos22.grand-challenge.org for the official split + citation.
+#     License: confirm at download time — not independently re-verified here.
+#   - Tumour (ACC) head: TCIA "Adrenal-ACC-Ki67-Seg" — 53 confirmed ACC
+#     patients, contrast CT + tumour-only segmentation, CC BY 4.0.
+#     https://www.cancerimagingarchive.net/collection/adrenal-acc-ki67-seg/
+#     All 53 cases are tumour-positive — pair with AMOS22's benign glands for
+#     negative examples, and note the segmentation covers the lesion only
+#     (not the whole gland), so label harmonisation is needed if you want a
+#     combined gland+tumour mask. n=53 is small; treat as fine-tune/held-out
+#     evaluation data for tumour_present, not the sole training source.
+#   - This cloud workspace has a fixed, modest disk allowance and no GPU —
+#     download both datasets on your own training machine/cluster, not here.
+#
+# Every path below is a placeholder — point it at your prepared NIfTI cohort
+# once AMOS22 (+ Adrenal-ACC-Ki67-Seg) has been converted to this layout.
+data:
+  root_dir: "data/nifti"                # expects <root_dir>/<patient_id>/image.nii.gz + mask.nii.gz
+  spacing: [1.0, 1.0, 2.0]               # target resampled spacing (mm), x,y,z
+  hu_window: [-135, 215]                 # soft-tissue window covering adrenal + surrounding organs
+  slice_window: 5                        # number of consecutive slices fed to the gate (3-7 per design)
+  safety_buffer: 4                       # fixed slices added above/below a positive run before uncertainty expansion
+  patient_level_folds: 5
+  seed: 42
+
+gate:
+  architecture: "snn"                    # "snn" | "cnn_lstm" | "resnet18" (see src/models/)
+  backbone: "resnet18"
+  timesteps: 5                           # == slice_window; each slice is one discrete SNN time step
+  hidden_dim: 256
+  beta: 0.9                              # LIF membrane decay
+  threshold: 1.0                         # LIF firing threshold
+  surrogate_grad: "fast_sigmoid"
+  heads: ["left_present", "right_present", "tumour_present"]
+  loss: "focal_bce"
+  focal_gamma: 2.0
+  class_weights: "auto"                  # inverse-frequency weighting for rare positive slices
+  target_sensitivity: 0.98               # operating threshold selected on validation PR curve
+  optimizer: "adamw"
+  lr: 1.0e-3
+  epochs: 60
+  batch_size: 16
+
+cnn_lstm_baseline:
+  # Deliberately matched to `gate` in parameter count so the SNN-vs-CNN-LSTM
+  # comparison isolates architecture, not capacity.
+  backbone: "resnet18"
+  hidden_dim: 256
+  lstm_layers: 1
+  lr: 1.0e-3
+  epochs: 60
+  batch_size: 16
+
+segmenter:
+  architecture: "unet25d"
+  encoder: "inceptionv4"                 # closest smp encoder to the InceptionV3 backbone used in prior work
+  in_channels: 5                         # neighbouring slices stacked as channels
+  hard_negative_sources:
+    - "boundary_slices"                  # slices immediately above/below the gland
+    - "neighbouring_organs"              # kidney, liver, spleen, pancreas slices
+    - "prior_pipeline_false_positives"   # FP masks harvested from the 2025 pipeline
+  loss: "dice_focal"
+  optimizer: "adamw"
+  lr: 3.0e-4
+  epochs: 150
+  batch_size: 8
+
+postprocessing:
+  tta: true
+  tta_transforms: ["hflip", "vflip", "rot90"]
+  remove_disconnected_components: true
+  min_component_voxels: 30
+
+evaluation:
+  segmentation_metrics: ["dice", "iou", "hd95", "nsd", "volume_error"]
+  gate_metrics: ["sensitivity", "specificity", "npv", "f2", "pr_auc", "brier"]
+  volume_metrics: ["false_positive_components_per_scan", "empty_slice_fp_rate"]
+  efficiency_metrics: ["latency_ms", "spike_count", "theoretical_energy_proxy"]
+  bootstrap_resamples: 2000
+  significance_test: "wilcoxon"
+  multiple_comparison_correction: "holm"
