@@ -8,7 +8,7 @@ def test_forward_shape():
     model = CNNLSTMSliceGate(slice_window=5, hidden_dim=32)
     x = torch.randn(2, 5, 1, 64, 64)
     logits, _ = model(x)
-    assert set(logits.keys()) == {"left_present", "right_present", "tumour_present"}
+    assert set(logits.keys()) == {"left_present", "right_present"}
     for tensor in logits.values():
         assert tensor.shape == (2,)
 

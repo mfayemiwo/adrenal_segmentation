@@ -1,7 +1,8 @@
-# Adrenal Gland & Tumour Segmentation — Sequence-Aware Spiking Gate + 2.5D Cascade
+# Adrenal Gland Segmentation — Sequence-Aware Spiking Gate + 2.5D Cascade
 
 This repository implements a hybrid classification-then-segmentation pipeline for
-adrenal gland (and adrenocortical tumour) segmentation from abdominal CT volumes.
+left and right adrenal gland segmentation from abdominal CT volumes. Tumour
+(adrenocortical carcinoma) segmentation is explicitly out of scope for this project.
 
 It extends a previously published 2D U-Net + TTA + connected-component
 post-processing pipeline (Fayemiwo et al., *Journal of Imaging Informatics in

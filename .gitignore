@@ -4,7 +4,12 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
-data/
+
+# Dataset directory at the repository root only. A bare "data/" pattern also
+# matches src/data/, which silently un-tracked the entire data package.
+# Keep the leading slash.
+/data/
+
 *.nii
 *.nii.gz
 *.dcm

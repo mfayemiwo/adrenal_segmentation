@@ -26,9 +26,9 @@ def build_unet25d(encoder: str = "inceptionv4", in_channels: int = 5, num_classe
     `in_channels` == the slice window size: the centre slice plus its
     neighbours are stacked as channels, which is the standard way to give a
     2D architecture partial 3D context without the memory cost of true 3D
-    convolutions. `num_classes` defaults to 1 (binary gland/tumour mask);
-    set to 2 for a joint left/right gland formulation with two output
-    channels instead of one shared mask.
+    convolutions. `num_classes` defaults to 1 (binary gland mask); set to 2
+    for a joint left/right gland formulation with two output channels
+    instead of one shared mask.
     """
     return smp.Unet(
         encoder_name=encoder,

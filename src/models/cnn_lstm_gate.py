@@ -32,7 +32,7 @@ class _ConvBlock(nn.Module):
 class CNNLSTMSliceGate(nn.Module):
     def __init__(self, slice_window: int = 5, in_channels: int = 1, hidden_dim: int = 256,
                  lstm_layers: int = 1,
-                 heads: tuple[str, ...] = ("left_present", "right_present", "tumour_present")):
+                 heads: tuple[str, ...] = ("left_present", "right_present")):
         super().__init__()
         self.slice_window = slice_window
         self.heads = heads

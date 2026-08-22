@@ -67,12 +67,14 @@ class SpikingSliceGate(nn.Module):
     ----------
     slice_window: number of consecutive CT slices == number of SNN time steps.
     in_channels: channels per slice (1 for a single HU-windowed grayscale slice).
-    heads: named binary outputs, e.g. {"left_present": 1, "right_present": 1, "tumour_present": 1}.
+    heads: named binary outputs, e.g. {"left_present": 1, "right_present": 1} —
+        left/right adrenal gland presence. This project's scope is gland
+        segmentation only; there is no tumour/ACC head.
     """
 
     def __init__(self, slice_window: int = 5, in_channels: int = 1, hidden_dim: int = 256,
                  beta: float = 0.9, threshold: float = 1.0,
-                 heads: tuple[str, ...] = ("left_present", "right_present", "tumour_present")):
+                 heads: tuple[str, ...] = ("left_present", "right_present")):
         super().__init__()
         self.slice_window = slice_window
         self.heads = heads

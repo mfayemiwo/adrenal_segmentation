@@ -68,12 +68,10 @@
 <rect x="590" y="507" width="320" height="40" rx="8" fill="#ffffff" stroke="#2a78d6" stroke-width="1.4"/>
 <text x="750.0" y="532.0" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.8" font-weight="600" font-style="normal" fill="#0b0b0b" text-anchor="middle">Rate-coded readout (mean spikes over k steps)</text>
 <path d="M750.0,551 L750.0,577" fill="none" stroke="#2a78d6" stroke-width="1.8" marker-end="url(#arrowhead)"/>
-<rect x="500.0" y="581" width="150" height="42" rx="21" fill="#2a78d6" stroke="none" stroke-width="1.5"/>
-<text x="575.0" y="607.0" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="700" font-style="normal" fill="#ffffff" text-anchor="middle">left_present</text>
-<rect x="675.0" y="581" width="150" height="42" rx="21" fill="#2a78d6" stroke="none" stroke-width="1.5"/>
-<text x="750.0" y="607.0" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="700" font-style="normal" fill="#ffffff" text-anchor="middle">right_present</text>
-<rect x="850.0" y="581" width="150" height="42" rx="21" fill="#2a78d6" stroke="none" stroke-width="1.5"/>
-<text x="925.0" y="607.0" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="700" font-style="normal" fill="#ffffff" text-anchor="middle">tumour_present</text>
+<rect x="500.0" y="581" width="200" height="42" rx="21" fill="#2a78d6" stroke="none" stroke-width="1.5"/>
+<text x="600.0" y="607.0" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="700" font-style="normal" fill="#ffffff" text-anchor="middle">left_present</text>
+<rect x="800.0" y="581" width="200" height="42" rx="21" fill="#2a78d6" stroke="none" stroke-width="1.5"/>
+<text x="900.0" y="607.0" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="12.5" font-weight="700" font-style="normal" fill="#ffffff" text-anchor="middle">right_present</text>
 <text x="750.0" y="651" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="11.3" font-weight="400" font-style="italic" fill="#52514e" text-anchor="middle">operating threshold θ selected on validation PR curve for sensitivity ≥ 0.98</text>
 <rect x="460" y="697" width="580" height="112" rx="14" fill="#f4f3f0" stroke="#898781" stroke-width="1.8" stroke-dasharray="6,4"/>
 <text x="750.0" y="723" font-family="system-ui, -apple-system, "Segoe UI", sans-serif" font-size="10.3" font-weight="700" font-style="normal" fill="#52514e" text-anchor="middle" letter-spacing="0.4">MANDATORY BASELINE · ablation arm D</text>

@@ -9,7 +9,7 @@ def test_forward_shape_and_grad():
 
     logits, spike_stats = model(x)
 
-    assert set(logits.keys()) == {"left_present", "right_present", "tumour_present"}
+    assert set(logits.keys()) == {"left_present", "right_present"}
     for name, tensor in logits.items():
         assert tensor.shape == (2,), f"{name} has shape {tensor.shape}"
 

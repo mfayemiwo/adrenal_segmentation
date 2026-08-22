@@ -18,7 +18,7 @@ from src.models.losses import MultiHeadFocalBCELoss
 
 @dataclass
 class GateTrainConfig:
-    heads: tuple[str, ...] = ("left_present", "right_present", "tumour_present")
+    heads: tuple[str, ...] = ("left_present", "right_present")
     lr: float = 1e-3
     epochs: int = 60
     focal_gamma: float = 2.0

@@ -1,7 +1,7 @@
 """Loss functions.
 
 The gate is optimised for sensitivity, not accuracy (per the design review):
-a missed positive slice permanently removes true adrenal/tumour tissue from
+a missed positive slice permanently removes true adrenal tissue from
 the segmenter's input, while a false positive only costs one wasted
 segmentation attempt. `FocalBCELoss` with class weighting keeps rare
 positive slices from being drowned out by the (numerically larger) negative
@@ -36,8 +36,9 @@ class FocalBCELoss(nn.Module):
 
 class MultiHeadFocalBCELoss(nn.Module):
     """Sums FocalBCELoss across the gate's named heads, with optional
-    per-head class weights (e.g. tumour_present is typically far rarer than
-    left/right_present and needs a larger positive weight)."""
+    per-head class weights (e.g. if one side's positive slices are rarer
+    than the other's in a given cohort, that head can be given a larger
+    positive weight)."""
 
     def __init__(self, heads: tuple[str, ...], gamma: float = 2.0,
                  pos_weights: dict[str, float] | None = None):
