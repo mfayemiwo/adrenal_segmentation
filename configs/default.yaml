@@ -17,7 +17,14 @@
 # once AMOS22 has been converted to this layout.
 data:
   root_dir: "data/nifti"                # expects <root_dir>/<patient_id>/image.nii.gz + mask.nii.gz
-  spacing: [1.0, 1.0, 2.0]               # target resampled spacing (mm), x,y,z
+  # Target resampled spacing (mm), x,y,z. Deliberately anisotropic: AMOS22 has
+  # fine in-plane resolution but coarse, *variable* slice thickness (1.25-5 mm),
+  # and resampling z to a fixed value is what makes a k-slice window span the
+  # same physical distance for every patient. PROVISIONAL — set z to the median
+  # slice thickness of your own cohort before any benchmark run, and record the
+  # value in docs/methodology.docx. scripts/train_adrenal_segmenter.py exposes
+  # these as --target-spacing-xy / --target-spacing-z with the same defaults.
+  spacing: [1.0, 1.0, 2.5]
   hu_window: [-135, 215]                 # soft-tissue window covering adrenal + surrounding organs
   slice_window: 5                        # number of consecutive slices fed to the gate (3-7 per design)
   safety_buffer: 4                       # fixed slices added above/below a positive run before uncertainty expansion

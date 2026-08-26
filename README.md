@@ -50,17 +50,21 @@ src/training/
 src/postprocessing/         TTA and connected-component pruning (carried over from prior pipeline)
 src/evaluation/             Dice/IoU/HD95/NSD, sensitivity/NPV/F2/PR-AUC/calibration, empty-slice FP rate
 src/inference/pipeline.py   end-to-end: gate -> uncertainty buffer -> segment -> post-process
-scripts/run_ablation.py     orchestrates the 8-arm ablation matrix (see docs/methodology.docx)
+scripts/
+    train_adrenal_segmenter.py   standalone Stage B training run (see "Training" below)
+    run_ablation.py              orchestrates the 8-arm ablation matrix (docs/methodology.docx)
+notebooks/                  AMOS22 data inspection, label checks, overlay visualisation
+docs/                       methodology.docx + architecture figures
 tests/                      unit tests against synthetic tensors (no patient data required)
 ```
 
 ## Status
 
-This is a **runnable methodological scaffold**, verified with unit tests on
-synthetic tensors (see `tests/`). It does not yet contain patient data or
-trained weights — plug in your NIfTI/DICOM cohort via `src/data/dataset.py`
-and run `scripts/run_ablation.py` to produce the results tables described in
-the accompanying methodology document.
+The methodology and the full pipeline scaffold are in place and verified with
+unit tests on synthetic tensors (see `tests/`). Stage B (the 2.5D segmenter)
+has a complete training entry point; the gate stages and the ablation matrix
+are wired but not yet trained on a patient cohort. No trained weights are
+included.
 
 ## Installation
 
@@ -68,6 +72,43 @@ the accompanying methodology document.
 pip install -r requirements.txt
 pytest tests/ -v
 ```
+
+## Training the segmenter (Stage B)
+
+```bash
+# ~1 minute end-to-end check of paths, data and pretrained weights
+python scripts/train_adrenal_segmenter.py --data-root /path/to/amos22 --smoke-test
+
+# the real run
+python scripts/train_adrenal_segmenter.py --data-root /path/to/amos22 --run-name run1
+```
+
+Each run writes to `runs/<run-name>/`:
+
+| file | purpose |
+| --- | --- |
+| `progress.txt` | rewritten every epoch — best/latest Dice, precision/recall, epochs since improvement, ETA, ASCII trend chart. Open this to see whether the model is improving. |
+| `train.log` | append-only, flushed per line — `tail -f` it |
+| `metrics.csv` | one flushed row per epoch, for plotting |
+| `best_model.pt` / `last_model.pt` | best checkpoint by validation Dice; `last` supports `--resume` |
+
+Notes that matter for results:
+
+- The encoder is imagenet-pretrained by default. Training from scratch does not
+  work on a structure occupying ~0.3% of pixels in any reasonable budget.
+- Volumes are resampled to a fixed physical spacing so that a k-slice window
+  spans the same distance for every patient. AMOS22 mixes 1.25/2/5 mm slice
+  thickness, which otherwise confounds any slice-sequence model.
+- Validation Dice is reported at the best of 19 thresholds as well as at 0.5;
+  a fixed 0.5 cutoff reads exactly 0.0 until predictions happen to cross it.
+- Expect whole-gland Dice around **0.60–0.75**. Adrenal glands are small and
+  genuinely hard; be suspicious of anything above ~0.85.
+- On ROCm the script sets `MIOPEN_USER_DB_PATH` / `MIOPEN_CUSTOM_CACHE_DIR`
+  before importing torch, working around the read-only MIOpen kernel database
+  that otherwise fails as `miopenStatusInternalError`.
+
+Run `--help` for the full option list (spacing, image size, encoder, batch
+size, max epochs, early-stopping patience, augmentation).
 
 ## Novel contributions (map to code)
 
