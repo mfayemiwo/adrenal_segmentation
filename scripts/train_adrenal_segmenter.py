@@ -107,6 +107,14 @@ def build_parser() -> argparse.ArgumentParser:
     data.add_argument("--right-label", type=int, default=11, help="AMOS22 right adrenal gland label id")
     data.add_argument("--left-label", type=int, default=12, help="AMOS22 left adrenal gland label id")
     data.add_argument("--rebuild-cache", action="store_true")
+    data.add_argument("--modality", choices=["ct", "mri", "all"], default="ct",
+                      help="AMOS22 Task 2 mixes CT and MRI in one directory, split by case id. "
+                           "MRI has no Hounsfield scale, so the CT HU window turns those volumes "
+                           "into noise while their labels stay valid - the network is then trained "
+                           "to fit nonsense on ~17%% of cases. Default is CT only, which is also "
+                           "what makes results comparable with CT-only published work.")
+    data.add_argument("--mri-id-threshold", type=int, default=500,
+                      help="case ids >= this are treated as MRI (AMOS22 convention)")
     data.add_argument("--combine-glands", action="store_true",
                       help="predict one merged gland mask instead of separate left/right "
                            "channels. Separate is the default: the prior published pipeline "
@@ -387,6 +395,23 @@ def discover_cases(args, logger) -> tuple[list[dict], list[dict]]:
         n_val = max(1, int(round(len(shuffled) * args.val_fraction)))
         val, train = shuffled[:n_val], shuffled[n_val:]
         logger.info("No imagesVa/ found - held out %d of %d cases as validation.", len(val), len(val) + len(train))
+
+    def _is_mri(record) -> bool:
+        digits = "".join(ch for ch in record["case_id"] if ch.isdigit())
+        return bool(digits) and int(digits) >= args.mri_id_threshold
+
+    if getattr(args, "modality", "all") != "all":
+        want_mri = args.modality == "mri"
+        before = (len(train), len(val))
+        train = [r for r in train if _is_mri(r) == want_mri]
+        val = [r for r in val if _is_mri(r) == want_mri]
+        logger.info("Modality filter '%s' (id threshold %d): train %d -> %d, validation %d -> %d",
+                    args.modality, args.mri_id_threshold, before[0], len(train), before[1], len(val))
+        if not train or not val:
+            raise RuntimeError(
+                f"No cases left after the '{args.modality}' filter. Check --mri-id-threshold "
+                f"against your case numbering, or pass --modality all."
+            )
 
     if args.max_train_cases:
         train = train[: args.max_train_cases]

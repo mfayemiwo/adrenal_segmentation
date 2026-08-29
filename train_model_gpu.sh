@@ -24,5 +24,5 @@ source .venv/bin/activate
 
 python -u scripts/train_adrenal_segmenter.py \
     --data-root ../data/amos22 --cache-dir ../cache \
-    --run-name run4 --batch-size 24 --lr 2e-4 --warmup-epochs 8 --num-workers 16
+    --run-name run5 --batch-size 24 --lr 2e-4 --warmup-epochs 8 --num-workers 16
 

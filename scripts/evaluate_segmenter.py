@@ -85,6 +85,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="per gland channel, keep only the N largest components; 0 disables")
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--max-val-cases", type=int, default=0)
+    p.add_argument("--modality", choices=["ct", "mri", "all"], default=None,
+                   help="default: whatever the checkpoint was trained with. Evaluating a "
+                        "CT-trained model on MRI cases mixes an unusable modality back into "
+                        "the score, which is exactly what made run4 read 0.71 instead of 0.75.")
     p.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
     return p
 
@@ -94,6 +98,142 @@ def dice(pred: np.ndarray, truth: np.ndarray) -> float:
     if denom == 0:
         return 1.0            # correctly predicted nothing where there is nothing
     return float(2.0 * np.logical_and(pred, truth).sum() / denom)
+
+
+
+# Prior published pipeline (Fayemiwo et al., 2025), mean per-case Dice on AMOS.
+PRIOR_WORK = {"raw": {"left": 0.82, "right": 0.75}, "postprocessed": {"left": 0.91, "right": 0.90}}
+
+
+def _stats(values):
+    a = np.asarray(values, dtype=float)
+    q1, med, q3 = np.percentile(a, [25, 50, 75])
+    return {"n": len(a), "mean": a.mean(), "std": a.std(), "min": a.min(), "max": a.max(),
+            "q1": q1, "median": med, "q3": q3,
+            "below_0.5": int((a < 0.5).sum()), "below_0.3": int((a < 0.3).sum())}
+
+
+def write_report(path: Path, *, checkpoint, settings, channel_names, stage_scores, rows, mri_threshold):
+    """A self-contained results file, for reading after a batch job rather than
+    watching a console. evaluate.log is the chronological record; this is the
+    result."""
+    import datetime
+
+    L = []
+    add = L.append
+    add("=" * 78)
+    add(" ADRENAL GLAND SEGMENTER - FULL-VOLUME EVALUATION")
+    add("=" * 78)
+    add(f" checkpoint   {checkpoint}")
+    add(f" generated    {datetime.datetime.now():%Y-%m-%d %H:%M:%S}")
+    for k, v in settings.items():
+        add(f" {k:<12} {v}")
+    add("")
+
+    add("-" * 78)
+    add(" HEADLINE  (mean per-case Dice - each patient scored, then averaged)")
+    add("-" * 78)
+    header = "".join(f"{n:>12}" for n in channel_names) + f"{'mean':>12}"
+    add(f" {'stage':<16}{header}")
+    stage_means = {}
+    for stage in ("raw", "postprocessed"):
+        per = [float(np.mean(stage_scores[stage][n])) for n in channel_names]
+        stage_means[stage] = per
+        add(f" {stage:<16}" + "".join(f"{v:12.4f}" for v in per) + f"{float(np.mean(per)):12.4f}")
+    delta = [b - a for a, b in zip(stage_means["raw"], stage_means["postprocessed"])]
+    add(f" {'post-proc gain':<16}" + "".join(f"{v:+12.4f}" for v in delta) +
+        f"{float(np.mean(delta)):+12.4f}")
+    add("")
+
+    if set(channel_names) == {"left", "right"}:
+        add("-" * 78)
+        add(" AGAINST THE PRIOR PUBLISHED PIPELINE (Fayemiwo et al., 2025)")
+        add("-" * 78)
+        add(f" {'':<26}{'L.A.G':>10}{'R.A.G':>10}")
+        for stage in ("raw", "postprocessed"):
+            tgt = PRIOR_WORK[stage]
+            ours = dict(zip(channel_names, stage_means[stage]))
+            add(f" prior work, {stage:<14}" + f"{tgt['left']:10.3f}{tgt['right']:10.3f}")
+            add(f" this work,  {stage:<14}" + f"{ours['left']:10.3f}{ours['right']:10.3f}")
+            add(f" {'difference':<26}" +
+                f"{ours['left']-tgt['left']:+10.3f}{ours['right']-tgt['right']:+10.3f}")
+            add("")
+
+    add("-" * 78)
+    add(" DISTRIBUTION ACROSS PATIENTS (after post-processing)")
+    add("-" * 78)
+    add(f" {'gland':<8}{'n':>5}{'mean':>9}{'median':>9}{'std':>8}{'min':>8}{'q1':>8}"
+        f"{'q3':>8}{'max':>8}{'<0.5':>7}{'<0.3':>7}")
+    for name in channel_names:
+        st = _stats(stage_scores["postprocessed"][name])
+        add(f" {name:<8}{st['n']:5d}{st['mean']:9.4f}{st['median']:9.4f}{st['std']:8.4f}"
+            f"{st['min']:8.4f}{st['q1']:8.4f}{st['q3']:8.4f}{st['max']:8.4f}"
+            f"{st['below_0.5']:7d}{st['below_0.3']:7d}")
+    add("")
+    add(" A mean well below the median means a small number of failing patients is")
+    add(" carrying the result. Those cases are listed below - fix them before tuning.")
+    add("")
+
+    add("-" * 78)
+    add(" CONNECTED COMPONENTS (does pruning have anything to remove?)")
+    add("-" * 78)
+    for name in channel_names:
+        before = np.mean([r[f"components_{name}_before"] for r in rows])
+        removed = np.mean([r[f"components_{name}_removed"] for r in rows])
+        add(f" {name:<8} mean components predicted {before:8.1f}   removed by pruning {removed:8.1f}")
+    add("")
+    add(" Few predicted components means the masks are already spatially coherent and")
+    add(" pruning cannot help much - a property of the 2.5D formulation, which sees")
+    add(" neighbouring slices, rather than a failure of the post-processing.")
+    add("")
+
+    by_modality = {"CT": [], "MRI": []}
+    for r in rows:
+        digits = "".join(ch for ch in r["case_id"] if ch.isdigit())
+        key = "MRI" if digits and int(digits) >= mri_threshold else "CT"
+        by_modality[key].append(r)
+    if all(by_modality.values()):
+        add("-" * 78)
+        add(" BY MODALITY  (AMOS22 Task 2 mixes CT and MRI; MRI has no Hounsfield scale,")
+        add(" so a CT intensity window makes those volumes unusable)")
+        add("-" * 78)
+        for mod, rs in by_modality.items():
+            per = [float(np.mean([r[f"dice_{n}_postprocessed"] for r in rs])) for n in channel_names]
+            add(f" {mod:<5} n={len(rs):<4}" + "".join(f"{v:12.4f}" for v in per))
+        add("")
+
+    scored = sorted(rows, key=lambda r: np.mean([r[f"dice_{n}_postprocessed"] for n in channel_names]))
+    add("-" * 78)
+    add(" WORST 15 PATIENTS")
+    add("-" * 78)
+    add(f" {'case':<12}{'mean':>8}" +
+        "".join(f"{n + ' dice':>12}{n + ' vox':>11}" for n in channel_names))
+    for r in scored[:15]:
+        mean = np.mean([r[f"dice_{n}_postprocessed"] for n in channel_names])
+        add(f" {r['case_id']:<12}{mean:8.3f}" +
+            "".join(f"{r[f'dice_{n}_postprocessed']:12.3f}{r[f'truth_voxels_{n}']:11d}"
+                    for n in channel_names))
+    add("")
+    add(" Large truth voxel counts alongside a near-zero Dice mean the model missed an")
+    add(" obvious structure - not a 'small organ is hard' failure. Check those scans.")
+    add("")
+
+    add("-" * 78)
+    add(" BEST 5 PATIENTS (for contrast)")
+    add("-" * 78)
+    for r in scored[-5:][::-1]:
+        mean = np.mean([r[f"dice_{n}_postprocessed"] for n in channel_names])
+        add(f" {r['case_id']:<12}{mean:8.3f}" +
+            "".join(f"{r[f'dice_{n}_postprocessed']:12.3f}" for n in channel_names))
+    add("")
+    add("=" * 78)
+    add(f" Per-case scores: {path.parent / 'per_case.csv'}")
+    add("=" * 78)
+    add("")
+
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text("\n".join(L), encoding="utf-8")
+    tmp.replace(path)
 
 
 def main(argv=None) -> int:
@@ -131,11 +271,15 @@ def main(argv=None) -> int:
         left_label=int(cfg.get("left_label", 12)),
     )
 
+    modality = args.modality or str(cfg.get("modality", "all"))
     disc = SimpleNamespace(
         data_root=args.data_root, seed=int(cfg.get("seed", 42)),
         val_fraction=float(cfg.get("val_fraction", 0.2)),
         max_train_cases=0, max_val_cases=args.max_val_cases,
+        modality=modality, mri_id_threshold=int(cfg.get("mri_id_threshold", 500)),
     )
+    logger.info("Modality: %s (%s)", modality,
+                "from checkpoint" if args.modality is None else "overridden on the command line")
     _, val_records = discover_cases(disc, logger)
     cache_dir = args.cache_dir or Path(cfg.get("cache_dir") or "runs/_volume_cache")
     val_cases = load_or_build_cache(val_records, geom, cache_dir, False, logger)
@@ -248,8 +392,21 @@ def main(argv=None) -> int:
                            f"(truth {r[f'truth_voxels_{n}']:>6d} vox)" for n in channel_names)
         logger.info("   %-12s %s", r["case_id"], detail)
 
+    report_path = out_dir / "evaluation_report.txt"
+    write_report(
+        report_path, checkpoint=args.checkpoint,
+        settings={
+            "modality": modality, "tta": args.tta, "threshold": f"{threshold:.3f}",
+            "pruning": f"min {args.min_component_voxels} vox, keep largest {args.keep_largest}",
+            "cases": len(val_cases),
+        },
+        channel_names=channel_names, stage_scores=stage_scores, rows=rows,
+        mri_threshold=int(cfg.get("mri_id_threshold", 500)),
+    )
+
     logger.info("-" * 78)
     logger.info("Per-case scores: %s", csv_path)
+    logger.info("Detailed report: %s", report_path)
     return 0
 
 
