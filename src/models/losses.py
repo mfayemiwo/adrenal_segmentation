@@ -58,14 +58,37 @@ class MultiHeadFocalBCELoss(nn.Module):
 
 
 class DiceLoss(nn.Module):
-    def __init__(self, smooth: float = 1.0):
+    """Soft Dice, optionally pooled over the batch.
+
+    `batch_dice=True` accumulates intersection and union across the whole batch
+    before dividing, instead of scoring each sample separately and averaging.
+    This matters enormously once left and right adrenal are separate output
+    channels, because many slices contain one gland but not the other, leaving
+    that channel's target completely empty.
+
+    On an empty target, per-sample Dice is ~1.0 for any non-zero prediction and
+    decreases only as the prediction goes to zero (measured: p=0.5 -> 0.9995,
+    p=0.018 -> 0.9866). Every such sample therefore contributes a near-maximal
+    loss whose gradient says "predict nothing", and with two channels roughly
+    half the (sample, channel) pairs are in that state. In practice the network
+    finds the all-zero solution within a handful of epochs and never leaves it.
+
+    Pooling over the batch removes the pathology: an empty channel in one slice
+    only adds to the denominator, while other slices in the batch supply the
+    intersection, so the loss stays informative. This is what nnU-Net does for
+    small structures, and for the same reason.
+    """
+
+    def __init__(self, smooth: float = 1.0, batch_dice: bool = True):
         super().__init__()
         self.smooth = smooth
+        self.batch_dice = batch_dice
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         probs = torch.sigmoid(logits)
         targets = targets.float()
-        dims = tuple(range(2, probs.ndim))
+        spatial = tuple(range(2, probs.ndim))
+        dims = (0,) + spatial if self.batch_dice else spatial
         intersection = (probs * targets).sum(dim=dims)
         union = probs.sum(dim=dims) + targets.sum(dim=dims)
         dice = (2 * intersection + self.smooth) / (union + self.smooth)
@@ -78,9 +101,10 @@ class DiceFocalLoss(nn.Module):
     neighbouring-organ / boundary slices) so the segmenter is explicitly
     penalised for hallucinating masks where none should exist."""
 
-    def __init__(self, dice_weight: float = 1.0, focal_weight: float = 1.0, gamma: float = 2.0):
+    def __init__(self, dice_weight: float = 1.0, focal_weight: float = 1.0, gamma: float = 2.0,
+                 batch_dice: bool = True):
         super().__init__()
-        self.dice = DiceLoss()
+        self.dice = DiceLoss(batch_dice=batch_dice)
         self.focal = FocalBCELoss(gamma=gamma)
         self.dice_weight = dice_weight
         self.focal_weight = focal_weight

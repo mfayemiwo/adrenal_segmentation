@@ -1,34 +1,16 @@
 #!/bin/bash -l
 
-#SBATCH --job-name=LLAMA_Min
+#SBATCH --job-name=adrenal_stageB
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
-#SBATCH --time=03:00:00
-
-###SBATCH --time=72:00:00
-
+#SBATCH --cpus-per-task=16
+#SBATCH --time=70:00:00
 #SBATCH --output=./out.%j
 #SBATCH --error=./err.%j
-#SBATCH --mem=20G
-
-###SBATCH -p k2-gpu-a100
-###SBATCH -p k2-gpu-h100
-###SBATCH -p k2-gpu-a100mig
-
-#SBATCH --partition=k2-gpu
+#SBATCH --mem=96G
+#SBATCH --partition=k2-gpu-amd
 #SBATCH --gres=gpu:mi300x:1
 
-###SBATCH --gres gpu:a100:1
-###SBATCH --gres gpu:h100:1
-###SBATCH --gres gpu:h100:1
-###SBATCH --gres gpu:2g.20gb:1
-###SBATCH --gres gpu:3g.40gb:1
-
-###SBATCH --gres=gpu:v100:1
-###SBATCH --gres=gpu:i1100:1
-###SBATCH --gres=gpu:mi300x:1
- 
-###module load libs/nvidia-cuda/12.8.0/bin
 
 module load amd-rocm/rocm-6.3.3
  
@@ -40,15 +22,7 @@ module load libs/gcc/14.1.0
 
 source .venv/bin/activate
 
-### module load amd-rocm/rocm-6.3.3
-### module load intel/oneapi/hpc-toolkit/2025.0.0/gcc-14.1.0
-
-###module load python3/3.10.5/gcc-9.3.0
-###export PYTHONUSERBASE=/mnt/scratch2/users/$USER/IntelGPU/gridware
-
-### export PATH=/mnt/scratch2/users/jsanchez/IntelGPU/gridware/bin:$PATH
-### export TMPDIR=/tmp/users/$USER
-
-python train_adrenal_segmenter.py
-
+python -u scripts/train_adrenal_segmenter.py \
+    --data-root ../data/amos22 --cache-dir ../cache \
+    --run-name run4 --batch-size 24 --lr 2e-4 --warmup-epochs 8 --num-workers 16
 

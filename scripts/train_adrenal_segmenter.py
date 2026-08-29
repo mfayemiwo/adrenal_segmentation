@@ -142,11 +142,24 @@ def build_parser() -> argparse.ArgumentParser:
     optim.add_argument("--weight-decay", type=float, default=1e-4)
     optim.add_argument("--warmup-epochs", type=int, default=3)
     optim.add_argument("--grad-clip", type=float, default=1.0)
+    optim.add_argument("--batch-dice", dest="batch_dice", action="store_true", default=True,
+                       help="pool Dice over the batch rather than scoring each sample alone. "
+                            "Essential with separate left/right channels: many slices contain "
+                            "one gland but not the other, and per-sample Dice on an empty "
+                            "target is ~1.0 for any non-zero prediction, so it drives the "
+                            "network to predict nothing at all.")
+    optim.add_argument("--no-batch-dice", dest="batch_dice", action="store_false")
     optim.add_argument("--amp", dest="amp", action="store_true", default=True)
     optim.add_argument("--no-amp", dest="amp", action="store_false")
     optim.add_argument("--num-workers", type=int, default=4)
     optim.add_argument("--augment", dest="augment", action="store_true", default=True)
     optim.add_argument("--no-augment", dest="augment", action="store_false")
+    optim.add_argument("--augment-level", choices=["light", "full"], default="full",
+                       help='"light" = affine + simple intensity jitter (reproduces earlier runs). '
+                            '"full" = the nnU-Net transform set minus every flip: adds Gaussian '
+                            'blur, brightness, contrast, simulated low resolution and gamma. '
+                            'No flip of any axis is ever applied - see the augmentation notes in '
+                            'the dataset class for why.')
 
     run = p.add_argument_group("run")
     run.add_argument("--output-dir", type=Path, default=Path("runs"))
@@ -583,12 +596,13 @@ def _make_dataset_class():
 
     class AdrenalSliceDataset(Dataset):
         def __init__(self, cases, samples, slice_window: int, augment: bool,
-                     combine_glands: bool = False, seed: int = 0):
+                     combine_glands: bool = False, level: str = "full", seed: int = 0):
             self.cases = cases
             self.samples = samples
             self.slice_window = slice_window
             self.augment = augment
             self.combine_glands = combine_glands
+            self.level = level
             self.seed = seed
 
         def __len__(self) -> int:
@@ -599,17 +613,47 @@ def _make_dataset_class():
             idx = np.clip(np.arange(centre - half, centre + half + 1), 0, image.shape[0] - 1)
             return np.ascontiguousarray(image[idx])
 
-        def _augment(self, x, y, rng):
-            """Small affine + intensity jitter.
+        # -- augmentation ---------------------------------------------- #
+        #
+        # NO FLIP OF ANY AXIS IS APPLIED, and each exclusion is deliberate:
+        #
+        #   left-right   The abdomen is not laterally symmetric (liver right,
+        #                spleen left, IVC right of midline), so a mirrored scan
+        #                is anatomically impossible. Decisively, left and right
+        #                are separate output channels here: flipping the image
+        #                without swapping the channels corrupts the target.
+        #   ant-post     Same asymmetry argument, more obviously.
+        #   craniocaudal Looks like free data for a slice-sequence model, and is
+        #                the most damaging of the three. Stage A's whole premise
+        #                is that consecutive slices carry directional
+        #                progression through the body; teaching the network that
+        #                superior-to-inferior and inferior-to-superior are
+        #                equivalent destroys the signal the SNN integrates.
+        #
+        # Everything else follows nnU-Net's validated transform set, whose
+        # intensity operations target the variation that actually exists in this
+        # cohort: multiple scanners, contrast and non-contrast studies, and
+        # slice thickness from 1.25 to 5 mm.
 
-            Deliberately no horizontal or vertical flip: the abdomen is not
-            left-right or anterior-posterior symmetric (liver right, spleen
-            left), so a flip produces anatomically impossible context and, for
-            the left/right-aware gate, would swap the sides under fixed labels.
-            """
-            angle = math.radians(rng.uniform(-12, 12))
-            scale = rng.uniform(0.9, 1.1)
-            tx, ty = rng.uniform(-0.06, 0.06), rng.uniform(-0.06, 0.06)
+        @staticmethod
+        def _gaussian_blur(x, sigma):
+            radius = max(1, int(round(3.0 * sigma)))
+            coords = torch.arange(-radius, radius + 1, dtype=torch.float32)
+            kernel = torch.exp(-(coords ** 2) / (2 * sigma ** 2))
+            kernel = kernel / kernel.sum()
+            c = x.shape[0]
+            kx = kernel.view(1, 1, 1, -1).expand(c, 1, 1, -1)
+            ky = kernel.view(1, 1, -1, 1).expand(c, 1, -1, 1)
+            x = F.conv2d(x.unsqueeze(0), kx, padding=(0, radius), groups=c)
+            x = F.conv2d(x, ky, padding=(radius, 0), groups=c)
+            return x.squeeze(0)
+
+        def _augment_spatial(self, x, y, rng):
+            wide = self.level == "full"
+            angle = math.radians(rng.uniform(-20, 20) if wide else rng.uniform(-12, 12))
+            scale = rng.uniform(0.85, 1.25) if wide else rng.uniform(0.9, 1.1)
+            shift = 0.08 if wide else 0.06
+            tx, ty = rng.uniform(-shift, shift), rng.uniform(-shift, shift)
             cos, sin = math.cos(angle) / scale, math.sin(angle) / scale
             theta = torch.tensor([[cos, -sin, tx], [sin, cos, ty]], dtype=torch.float32).unsqueeze(0)
 
@@ -618,12 +662,54 @@ def _make_dataset_class():
                               padding_mode="border", align_corners=False).squeeze(0)
             y = F.grid_sample(y.unsqueeze(0), grid, mode="nearest",
                               padding_mode="zeros", align_corners=False).squeeze(0)
-
-            if rng.random() < 0.3:
-                x = x * rng.uniform(0.9, 1.1) + rng.uniform(-0.1, 0.1)
-            if rng.random() < 0.2:
-                x = x + torch.randn_like(x) * rng.uniform(0.01, 0.05)
             return x, y
+
+        def _augment_intensity(self, x, rng):
+            if self.level != "full":
+                if rng.random() < 0.3:
+                    x = x * rng.uniform(0.9, 1.1) + rng.uniform(-0.1, 0.1)
+                if rng.random() < 0.2:
+                    x = x + torch.randn_like(x) * rng.uniform(0.01, 0.05)
+                return x
+
+            if rng.random() < 0.10:                       # additive noise
+                x = x + torch.randn_like(x) * rng.uniform(0.0, 0.1)
+
+            if rng.random() < 0.20:                       # blur
+                x = self._gaussian_blur(x, rng.uniform(0.5, 1.5))
+
+            if rng.random() < 0.15:                       # brightness
+                x = x * rng.uniform(0.75, 1.25)
+
+            if rng.random() < 0.15:                       # contrast about the mean
+                mean = x.mean()
+                lo, hi = x.min(), x.max()
+                x = ((x - mean) * rng.uniform(0.75, 1.25) + mean).clamp(lo, hi)
+
+            if rng.random() < 0.25:
+                # Simulated low resolution: downsample with nearest, restore with
+                # bicubic. Directly targets this cohort's thick-slice cases -
+                # resampling 5 mm data onto a 2.5 mm grid interpolates it up but
+                # cannot make it genuinely sharp, so the model should expect it.
+                h, w = x.shape[-2:]
+                f = rng.uniform(1.0, 2.0)
+                small = (max(8, int(round(h / f))), max(8, int(round(w / f))))
+                x = F.interpolate(x.unsqueeze(0), size=small, mode="nearest")
+                x = F.interpolate(x, size=(h, w), mode="bicubic", align_corners=False).squeeze(0)
+
+            for invert, prob in ((True, 0.10), (False, 0.30)):   # gamma
+                if rng.random() >= prob:
+                    continue
+                if invert:
+                    x = -x
+                lo = x.min()
+                rng_span = x.max() - lo
+                if float(rng_span) > 1e-6:
+                    gamma = rng.uniform(0.7, 1.5)
+                    x = ((x - lo) / rng_span).clamp(min=0) ** gamma * rng_span + lo
+                if invert:
+                    x = -x
+            return x
 
         def __getitem__(self, index):
             case_index, centre = self.samples[index]
@@ -641,8 +727,9 @@ def _make_dataset_class():
 
             if self.augment:
                 rng = random.Random((self.seed, index, torch.initial_seed() & 0xFFFF).__hash__())
-                x, y = self._augment(x, y, rng)
+                x, y = self._augment_spatial(x, y, rng)
                 y = (y > 0.5).float()
+                x = self._augment_intensity(x, rng)
 
             # case_index travels with the sample so validation can score each
             # patient separately (mean per-case Dice), which is what the
@@ -793,10 +880,13 @@ def main(argv=None) -> int:
     channel_names = ("gland",) if args.combine_glands else ("left", "right")
     n_ch = len(channel_names)
     logger.info("Predicting %d channel(s): %s", n_ch, ", ".join(channel_names))
+    logger.info("Augmentation: %s (no flips on any axis - see dataset class)",
+                f"{args.augment_level}" if args.augment else "disabled")
+    logger.info("Dice pooling: %s", "batch" if args.batch_dice else "per-sample")
 
     Dataset = _make_dataset_class()
     train_ds = Dataset(train_cases, train_samples, args.slice_window, augment=args.augment,
-                       combine_glands=args.combine_glands, seed=args.seed)
+                       combine_glands=args.combine_glands, level=args.augment_level, seed=args.seed)
     val_ds = Dataset(val_cases, val_samples, args.slice_window, augment=False,
                      combine_glands=args.combine_glands)
 
@@ -838,7 +928,7 @@ def main(argv=None) -> int:
         logger.warning("Training the encoder from scratch. On a structure this small that usually "
                        "needs far more data and epochs; --encoder-weights imagenet is strongly advised.")
 
-    criterion = DiceFocalLoss()
+    criterion = DiceFocalLoss(batch_dice=args.batch_dice)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
@@ -868,6 +958,11 @@ def main(argv=None) -> int:
                     history.append({"epoch": int(row["epoch"]), "dice": float(row["val_dice_best"])})
         except Exception as exc:
             logger.warning("Could not read prior metrics for the progress view: %s", exc)
+
+    # A collapse to the all-zero prediction is recoverable information, not a
+    # result: catch it in a few epochs rather than waiting out full patience.
+    collapse_streak = 0
+    ever_learned = False
 
     interrupted = {"flag": False}
 
@@ -1066,6 +1161,23 @@ def main(argv=None) -> int:
                 "threshold": best_threshold,
                 "config": config_blob,
             }, run_dir / "best_model.pt")
+
+        if val_dice_best > 0.05:
+            ever_learned = True
+        collapse_streak = collapse_streak + 1 if val_dice_best < 1e-6 else 0
+        if ever_learned and collapse_streak >= 5:
+            logger.error(
+                "COLLAPSED: validation Dice has been exactly 0 for %d consecutive epochs "
+                "after reaching %.4f at epoch %d. The network is predicting empty masks "
+                "everywhere and will not recover on its own.", collapse_streak,
+                stopper.best, stopper.best_epoch)
+            logger.error(
+                "Most likely causes, in order: (1) per-sample Dice with empty target "
+                "channels - use --batch-dice (currently %s); (2) learning rate too high - "
+                "it collapsed just as warmup reached its peak in previous runs; "
+                "(3) fp16 instability. Best checkpoint is preserved at %s.",
+                "on" if args.batch_dice else "OFF", run_dir / "best_model.pt")
+            break
 
         if interrupted["flag"]:
             logger.warning("Stopping after epoch %d at user request.", epoch)
