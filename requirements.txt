@@ -1,4 +1,29 @@
-torch>=2.1
+# Project dependencies EXCEPT PyTorch.
+#
+# PyTorch is deliberately not pinned here. `pip install torch` resolves to the
+# CUDA build on PyPI, which on an AMD/ROCm machine silently falls back to CPU:
+# training still "works", just far slower, and the only visible symptoms are a
+# torch version ending in +cuXXX and NNPACK warnings. Listing torch in this
+# file meant a routine `pip install -r requirements.txt` could upgrade a
+# working ROCm install to a CUDA one with no error at all.
+#
+# Install torch for your platform LAST, after this file - several packages
+# below depend on torch and can otherwise pull a PyPI build over the top:
+#
+#   AMD / ROCm 6.3:
+#     python -m pip --no-cache-dir install torch==2.6.0 torchvision==0.21.0 \
+#         torchaudio==2.6.0 -f https://repo.radeon.com/rocm/manylinux/rocm-rel-6.3.3/
+#
+#   NVIDIA / CUDA:  see https://pytorch.org/get-started/locally/
+#   CPU only:       python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+#
+# Verify before training. On ROCm this must print a hip version and True:
+#     python -c "import torch; print(torch.__version__, torch.version.hip, torch.cuda.is_available())"
+#
+# Do NOT put `pip install -r requirements.txt` inside a job script: compute
+# nodes often have no network, it burns allocated GPU time, and it gives pip a
+# chance to replace the platform torch on every single run.
+
 snntorch>=0.9.1
 segmentation-models-pytorch>=0.3.3
 numpy>=1.24

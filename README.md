@@ -69,9 +69,51 @@ included.
 ## Installation
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt          # everything except torch
+# then install torch for your platform - see below - and finally:
 pytest tests/ -v
 ```
+
+**PyTorch is installed separately, and last.** `requirements.txt` deliberately
+omits it: `pip install torch` resolves to the CUDA build on PyPI, which on an
+AMD GPU silently falls back to CPU. Training still runs, just far slower, and
+the only symptoms are a version ending in `+cuXXX` and `NNPACK` warnings.
+
+On the AMD MI300X cluster (ROCm 6.3.3), with the venv **activated**:
+
+```bash
+module load amd-rocm/rocm-6.3.3 apps/python3/3.12.4/gcc-14.1.0
+source .venv/bin/activate
+
+python -m pip --no-cache-dir install torch==2.6.0 torchvision==0.21.0 \
+    torchaudio==2.6.0 -f https://repo.radeon.com/rocm/manylinux/rocm-rel-6.3.3/
+
+python -c "import torch; print(torch.__version__, torch.version.hip, torch.cuda.is_available())"
+```
+
+The last line must print `2.6.0+rocm6.3`, a HIP version, and `True`. For CUDA
+or CPU-only machines see https://pytorch.org/get-started/locally/.
+
+Never put `pip install -r requirements.txt` inside a job script: compute nodes
+often have no network, it spends allocated GPU time on downloads, and it gives
+pip a chance to replace the platform torch on every run.
+
+## Running on SLURM
+
+`scripts/train_amos.sbatch` is a ready-to-edit submission script for the
+`k2-gpu-amd` partition. It loads the modules, activates the venv, asserts that
+a GPU is actually visible (aborting in seconds rather than wasting the
+allocation on CPU), and launches training with unbuffered output.
+
+```bash
+sbatch scripts/train_amos.sbatch
+squeue -u $USER
+tail -f runs/run1/train.log        # live regardless of SLURM's output buffering
+```
+
+If the wall-clock limit stops a run that was still improving, resubmit with
+`--resume runs/run1/last_model.pt` appended to the python call; it continues
+from the last epoch and keeps appending to the same `metrics.csv`.
 
 ## Training the segmenter (Stage B)
 

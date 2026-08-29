@@ -25,10 +25,23 @@ Why this exists, and what it changes versus the exploratory notebook:
   * Volume cache. Decode + resample each case once, then reuse it every epoch.
   * Real training length. Max-epoch cap plus early stopping on validation Dice.
 
-Expectations: adrenal glands are small and genuinely hard. Published
-whole-gland Dice on AMOS-like data sits around 0.6-0.75. Treat ~0.70 as a good
-result and be suspicious of anything above ~0.85 (usually a leak or a metric
-computed only over positive slices).
+Metrics. Validation reports MEAN PER-CASE Dice (score each patient, then
+average) as the headline figure, because that is what the literature reports.
+The pooled "aggregate" Dice - every pixel in the cohort treated as one image -
+is logged alongside it, and the two are not interchangeable: pooling weights
+patients by gland size. Compare like with like before claiming an improvement.
+
+Scope. Each case is cropped to the gland extent +/- --z-margin slices, and
+validation samples come only from inside that window. The reported Dice is
+therefore the segmenter's ability on the region where the gland actually is,
+NOT full-volume performance - slices elsewhere in the abdomen never enter the
+score. That gap is what Stage A (the gate) exists to close, and it means these
+numbers sit above what the full pipeline will achieve on whole scans.
+
+Also absent here: test-time augmentation and connected-component pruning (see
+src/postprocessing/). Both are applied downstream, and in the prior published
+pipeline they were worth a large margin - so a raw number from this script is
+not comparable with a post-processed one.
 
 Usage
 -----
@@ -94,6 +107,11 @@ def build_parser() -> argparse.ArgumentParser:
     data.add_argument("--right-label", type=int, default=11, help="AMOS22 right adrenal gland label id")
     data.add_argument("--left-label", type=int, default=12, help="AMOS22 left adrenal gland label id")
     data.add_argument("--rebuild-cache", action="store_true")
+    data.add_argument("--combine-glands", action="store_true",
+                      help="predict one merged gland mask instead of separate left/right "
+                           "channels. Separate is the default: the prior published pipeline "
+                           "reports L.A.G and R.A.G individually, and the two differ in "
+                           "difficulty, so a merged mask cannot be compared with it.")
 
     geom = p.add_argument_group("geometry")
     geom.add_argument("--target-spacing-z", type=float, default=2.5,
@@ -179,6 +197,8 @@ class MetricsWriter:
     FIELDS = [
         "epoch", "lr", "train_loss", "train_dice", "val_loss",
         "val_dice_at_0.5", "val_dice_best", "val_best_threshold",
+        "val_dice_aggregate", "val_dice_case_std", "val_dice_case_worst",
+        "val_dice_left", "val_dice_right", "val_dice_gland",
         "val_precision", "val_recall", "epoch_seconds", "is_best",
     ]
 
@@ -241,8 +261,14 @@ def write_progress(path: Path, *, run_name: str, epoch: int, max_epochs: int, hi
         "",
         f"  STATUS          {status}",
         "",
-        f"  Best val Dice   {best:.4f}   (epoch {best_epoch})",
+        f"  Best val Dice   {best:.4f}   (epoch {best_epoch})   [mean per-case]",
         f"  Latest val Dice {latest['dice']:.4f}   at threshold {latest['threshold']:.2f}",
+        "",
+        *[f"  {name.capitalize():<14}{value:.4f}" for name, value in latest["per_gland"].items()],
+        "",
+        f"  Aggregate Dice  {latest['aggregate']:.4f}   (pooled over all pixels - not "
+        f"the figure papers report)",
+        f"  Worst case      {latest['worst']:.4f}   |  spread (sd) {latest['std']:.4f}",
         f"  Epochs since best improvement: {since_best}   (early stop at {patience})",
         "",
         f"  Precision       {latest['precision']:.3f}",
@@ -255,7 +281,7 @@ def write_progress(path: Path, *, run_name: str, epoch: int, max_epochs: int, hi
         f"  Remaining       ~{format_duration(avg_epoch_seconds * max(0, max_epochs - epoch))}"
         f" if it runs all {max_epochs} epochs (early stopping may end it sooner)",
         "",
-        f"  Validation Dice, last {len(recent)} epochs   (bars scaled to best so far = {scale:.4f})",
+        f"  Validation Dice (mean per-case), last {len(recent)} epochs   (bars scaled to best so far = {scale:.4f})",
         "  " + "-" * 68,
     ]
     for h in recent:
@@ -365,6 +391,10 @@ def discover_cases(args, logger) -> tuple[list[dict], list[dict]]:
 # Volume preparation + cache
 # --------------------------------------------------------------------------- #
 
+LEFT_CHANNEL_VALUE = 1
+RIGHT_CHANNEL_VALUE = 2
+
+
 @dataclass
 class GeometryConfig:
     spacing_z: float
@@ -376,7 +406,10 @@ class GeometryConfig:
     left_label: int = 12
 
     def cache_key(self) -> str:
-        return (f"z{self.spacing_z:g}_xy{self.spacing_xy:g}_s{self.image_size}"
+        # "v2" marks the switch from a merged binary mask to a label-coded one
+        # (1 = left, 2 = right). A v1 cache holds different semantics and must
+        # not be silently reused.
+        return (f"v2_z{self.spacing_z:g}_xy{self.spacing_xy:g}_s{self.image_size}"
                 f"_m{self.z_margin}_hu{self.hu_window[0]:g},{self.hu_window[1]:g}"
                 f"_l{self.right_label}-{self.left_label}")
 
@@ -429,7 +462,12 @@ def prepare_case(record: dict, geom: GeometryConfig) -> dict | None:
     sx, sy, sz = (float(v) for v in image_nifti.header.get_zooms()[:3])
     zoom_factors = (sz / geom.spacing_z, sx / geom.spacing_xy, sy / geom.spacing_xy)
 
-    adrenal = ((label == geom.right_label) | (label == geom.left_label)).astype(np.uint8)
+    # Label-coded rather than merged: 1 = left, 2 = right. Storing the sides
+    # separately here means the merged/separate choice is a training-time
+    # decision, not baked into the cache.
+    adrenal = np.zeros(label.shape, dtype=np.uint8)
+    adrenal[label == geom.left_label] = LEFT_CHANNEL_VALUE
+    adrenal[label == geom.right_label] = RIGHT_CHANNEL_VALUE
     if not adrenal.any():
         return None
 
@@ -449,7 +487,7 @@ def prepare_case(record: dict, geom: GeometryConfig) -> dict | None:
     image = _pad_or_crop_inplane(image, geom.image_size, pad_value=float(image.min()))
     adrenal = _pad_or_crop_inplane(adrenal, geom.image_size, pad_value=0)
 
-    positive = np.flatnonzero(adrenal.any(axis=(1, 2)))
+    positive = np.flatnonzero((adrenal > 0).any(axis=(1, 2)))
     if positive.size == 0:
         return None
     z0 = max(0, int(positive.min()) - geom.z_margin)
@@ -460,7 +498,7 @@ def prepare_case(record: dict, geom: GeometryConfig) -> dict | None:
         "case_id": record["case_id"],
         "image": image.astype(np.float16),
         "mask": adrenal.astype(np.uint8),
-        "n_positive": int(adrenal.any(axis=(1, 2)).sum()),
+        "n_positive": int((adrenal > 0).any(axis=(1, 2)).sum()),
         "n_slices": int(image.shape[0]),
     }
 
@@ -525,7 +563,7 @@ def build_sample_index(cases, negative_ratio: float, max_positive: int, seed: in
     rng = random.Random(seed)
     samples = []
     for ci, case in enumerate(cases):
-        positive = np.flatnonzero(case["mask"].any(axis=(1, 2))).tolist()
+        positive = np.flatnonzero((case["mask"] > 0).any(axis=(1, 2))).tolist()
         if max_positive and len(positive) > max_positive:
             idx = np.linspace(0, len(positive) - 1, max_positive).round().astype(int)
             positive = [positive[i] for i in idx]
@@ -544,11 +582,13 @@ def _make_dataset_class():
     from torch.utils.data import Dataset
 
     class AdrenalSliceDataset(Dataset):
-        def __init__(self, cases, samples, slice_window: int, augment: bool, seed: int = 0):
+        def __init__(self, cases, samples, slice_window: int, augment: bool,
+                     combine_glands: bool = False, seed: int = 0):
             self.cases = cases
             self.samples = samples
             self.slice_window = slice_window
             self.augment = augment
+            self.combine_glands = combine_glands
             self.seed = seed
 
         def __len__(self) -> int:
@@ -590,14 +630,24 @@ def _make_dataset_class():
             case = self.cases[case_index]
 
             x = torch.from_numpy(self._window(case["image"], centre).astype(np.float32))
-            y = torch.from_numpy(case["mask"][centre].astype(np.float32)).unsqueeze(0)
+            coded = case["mask"][centre]
+            if self.combine_glands:
+                y = torch.from_numpy((coded > 0).astype(np.float32)).unsqueeze(0)
+            else:
+                # channel 0 = left, channel 1 = right, matching CHANNEL_NAMES
+                y = torch.from_numpy(np.stack([
+                    coded == LEFT_CHANNEL_VALUE, coded == RIGHT_CHANNEL_VALUE,
+                ]).astype(np.float32))
 
             if self.augment:
                 rng = random.Random((self.seed, index, torch.initial_seed() & 0xFFFF).__hash__())
                 x, y = self._augment(x, y, rng)
                 y = (y > 0.5).float()
 
-            return {"slices": x, "mask": y}
+            # case_index travels with the sample so validation can score each
+            # patient separately (mean per-case Dice), which is what the
+            # literature reports - not one Dice pooled over every pixel.
+            return {"slices": x, "mask": y, "case_index": case_index}
 
     return AdrenalSliceDataset
 
@@ -644,7 +694,14 @@ def lr_at(epoch: int, args) -> float:
     return args.min_lr + 0.5 * (args.lr - args.min_lr) * (1 + math.cos(math.pi * progress))
 
 
-THRESHOLDS = np.round(np.arange(0.05, 0.96, 0.05), 2)
+# Fine spacing below 0.10, coarse above. A Dice loss under heavy class
+# imbalance pushes probabilities down, so the optimum routinely lands in the
+# low tail: the first real run peaked at 0.05, which was the old floor of this
+# sweep, leaving no way to tell whether something lower was better. An optimum
+# reported at the edge of its own search range is not a chosen operating point.
+THRESHOLDS = np.round(
+    np.concatenate([np.arange(0.01, 0.10, 0.01), np.arange(0.10, 0.96, 0.05)]), 2
+)
 
 
 def main(argv=None) -> int:
@@ -733,9 +790,15 @@ def main(argv=None) -> int:
         logger.warning("Only %d training slices - too few for a meaningful run. "
                        "Add cases (--max-train-cases 0 uses all).", len(train_samples))
 
+    channel_names = ("gland",) if args.combine_glands else ("left", "right")
+    n_ch = len(channel_names)
+    logger.info("Predicting %d channel(s): %s", n_ch, ", ".join(channel_names))
+
     Dataset = _make_dataset_class()
-    train_ds = Dataset(train_cases, train_samples, args.slice_window, augment=args.augment, seed=args.seed)
-    val_ds = Dataset(val_cases, val_samples, args.slice_window, augment=False)
+    train_ds = Dataset(train_cases, train_samples, args.slice_window, augment=args.augment,
+                       combine_glands=args.combine_glands, seed=args.seed)
+    val_ds = Dataset(val_cases, val_samples, args.slice_window, augment=False,
+                     combine_glands=args.combine_glands)
 
     loader_kwargs = dict(num_workers=args.num_workers, pin_memory=(device.type == "cuda"))
     if args.num_workers > 0:
@@ -751,7 +814,7 @@ def main(argv=None) -> int:
             encoder_name=args.encoder,
             encoder_weights=weights,
             in_channels=args.slice_window,
-            classes=1,
+            classes=n_ch,
             decoder_attention_type=None if args.decoder_attention == "none" else args.decoder_attention,
         ).to(device)
     except Exception as exc:
@@ -832,7 +895,8 @@ def main(argv=None) -> int:
             group["lr"] = lr
 
         model.train()
-        train_loss, train_inter, train_pred, train_target, n_batches = 0.0, 0.0, 0.0, 0.0, 0
+        train_loss, n_batches = 0.0, 0
+        train_inter = np.zeros(n_ch); train_pred = np.zeros(n_ch); train_target = np.zeros(n_ch)
         for batch in train_loader:
             x = batch["slices"].to(device, non_blocking=True)
             y = batch["mask"].to(device, non_blocking=True)
@@ -857,23 +921,33 @@ def main(argv=None) -> int:
             n_batches += 1
             with torch.no_grad():
                 pred = (torch.sigmoid(logits.float()) >= 0.5)
-                train_inter += float((pred & (y > 0.5)).sum())
-                train_pred += float(pred.sum())
-                train_target += float((y > 0.5).sum())
+                truth = y > 0.5
+                dims = (0,) + tuple(range(2, truth.ndim))
+                train_inter += (pred & truth).sum(dim=dims).cpu().numpy()
+                train_pred += pred.sum(dim=dims).cpu().numpy()
+                train_target += truth.sum(dim=dims).cpu().numpy()
 
         train_loss /= max(n_batches, 1)
-        train_dice = dice_from_counts(train_inter, train_pred, train_target)
+        train_dice = float(np.mean([
+            dice_from_counts(train_inter[c], train_pred[c], train_target[c]) for c in range(n_ch)
+        ]))
 
         # -- validation: accumulate counts at every threshold in one pass ---
         model.eval()
         val_loss, n_val_batches = 0.0, 0
-        inter = np.zeros(len(THRESHOLDS))
-        pred_sum = np.zeros(len(THRESHOLDS))
-        target_total = 0.0
+        n_cases = len(val_cases)
+        n_thr = len(THRESHOLDS)
+        # (threshold, case, gland) so each patient is scored separately for each
+        # gland - the prior published pipeline reports L.A.G and R.A.G apart,
+        # and they differ in difficulty, so a merged figure hides the gap.
+        inter_c = np.zeros((n_thr, n_cases, n_ch))
+        pred_c = np.zeros((n_thr, n_cases, n_ch))
+        target_c = np.zeros((n_cases, n_ch))
         with torch.inference_mode():
             for batch in val_loader:
                 x = batch["slices"].to(device, non_blocking=True)
                 y = batch["mask"].to(device, non_blocking=True)
+                case_ids = batch["case_index"].numpy()
                 with torch.amp.autocast("cuda", enabled=use_amp):
                     logits = model(x)
                     loss = criterion(logits, y)
@@ -883,39 +957,73 @@ def main(argv=None) -> int:
 
                 probs = torch.sigmoid(logits.float())
                 truth = y > 0.5
-                target_total += float(truth.sum())
+                dims = tuple(range(2, truth.ndim))          # keep (batch, gland)
+                np.add.at(target_c, case_ids, truth.sum(dim=dims).cpu().numpy())
                 for ti, threshold in enumerate(THRESHOLDS):
                     pred = probs >= float(threshold)
-                    inter[ti] += float((pred & truth).sum())
-                    pred_sum[ti] += float(pred.sum())
+                    np.add.at(inter_c[ti], case_ids, (pred & truth).sum(dim=dims).cpu().numpy())
+                    np.add.at(pred_c[ti], case_ids, pred.sum(dim=dims).cpu().numpy())
 
         val_loss /= max(n_val_batches, 1)
-        dice_by_threshold = np.array([
-            dice_from_counts(inter[i], pred_sum[i], target_total) for i in range(len(THRESHOLDS))
-        ])
-        best_i = int(np.argmax(dice_by_threshold))
-        val_dice_best = float(dice_by_threshold[best_i])
+
+        # Mean per-case Dice per gland: score every patient, then average over
+        # the patients that actually contain that gland.
+        denom = pred_c + target_c[None, :, :]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            per_case = np.where(denom > 0, 2.0 * inter_c / denom, 1.0)   # (thr, case, gland)
+        seen = target_c > 0                                              # (case, gland)
+        dice_case = np.zeros((n_thr, n_ch))
+        for c in range(n_ch):
+            if seen[:, c].any():
+                dice_case[:, c] = per_case[:, seen[:, c], c].mean(axis=1)
+
+        # One shared operating threshold, chosen on the mean across glands, so
+        # the model has a single deployable cutoff rather than one per output.
+        dice_case_mean = dice_case.mean(axis=1)
+        best_i = int(np.argmax(dice_case_mean))
         best_threshold = float(THRESHOLDS[best_i])
+        val_dice_best = float(dice_case_mean[best_i])
+        per_gland = {name: float(dice_case[best_i, c]) for c, name in enumerate(channel_names)}
+
         half_i = int(np.argmin(np.abs(THRESHOLDS - 0.5)))
-        val_dice_half = float(dice_by_threshold[half_i])
-        precision = float(inter[best_i] / pred_sum[best_i]) if pred_sum[best_i] > 0 else 0.0
-        recall = float(inter[best_i] / target_total) if target_total > 0 else 0.0
+        val_dice_half = float(dice_case_mean[half_i])
+
+        # Pooled ("aggregate") Dice, logged for reference only - it treats the
+        # whole cohort as one image and is not what the literature reports.
+        agg_inter = inter_c[best_i].sum(axis=0)
+        agg_pred = pred_c[best_i].sum(axis=0)
+        agg_target = target_c.sum(axis=0)
+        val_dice_agg = float(np.mean([
+            dice_from_counts(agg_inter[c], agg_pred[c], agg_target[c]) for c in range(n_ch)
+        ]))
+        precision = float(agg_inter.sum() / agg_pred.sum()) if agg_pred.sum() > 0 else 0.0
+        recall = float(agg_inter.sum() / agg_target.sum()) if agg_target.sum() > 0 else 0.0
+
+        scores_at_best = per_case[best_i][seen.any(axis=1)]
+        dice_case_std = float(scores_at_best.mean(axis=1).std()) if scores_at_best.size else 0.0
+        dice_case_worst = float(scores_at_best.mean(axis=1).min()) if scores_at_best.size else 0.0
 
         improved = stopper.update(val_dice_best, epoch)
         elapsed = time.perf_counter() - epoch_start
 
         logger.info(
             "epoch %3d/%d | lr %.2e | loss %.4f/%.4f | dice tr %.4f | "
-            "val %.4f@0.50  %.4f@%.2f (P %.3f R %.3f) | %5.1fs%s",
+            "val/case %.4f@%.2f [%s] | worst %.3f | P %.3f R %.3f | %5.1fs%s",
             epoch, args.max_epochs, lr, train_loss, val_loss, train_dice,
-            val_dice_half, val_dice_best, best_threshold, precision, recall,
-            elapsed, "  <- best" if improved else "",
+            val_dice_best, best_threshold,
+            "  ".join(f"{n} {v:.4f}" for n, v in per_gland.items()),
+            dice_case_worst, precision, recall, elapsed,
+            "  <- best" if improved else "",
         )
         metrics.write({
             "epoch": epoch, "lr": f"{lr:.6e}",
             "train_loss": f"{train_loss:.6f}", "train_dice": f"{train_dice:.6f}",
             "val_loss": f"{val_loss:.6f}", "val_dice_at_0.5": f"{val_dice_half:.6f}",
             "val_dice_best": f"{val_dice_best:.6f}", "val_best_threshold": f"{best_threshold:.2f}",
+            "val_dice_aggregate": f"{val_dice_agg:.6f}",
+            "val_dice_case_std": f"{dice_case_std:.6f}",
+            "val_dice_case_worst": f"{dice_case_worst:.6f}",
+            **{f"val_dice_{name}": f"{value:.6f}" for name, value in per_gland.items()},
             "val_precision": f"{precision:.6f}", "val_recall": f"{recall:.6f}",
             "epoch_seconds": f"{elapsed:.2f}", "is_best": int(improved),
         })
@@ -930,6 +1038,8 @@ def main(argv=None) -> int:
             avg_epoch_seconds=(time.perf_counter() - run_started) / epochs_done,
             latest={
                 "dice": val_dice_best, "threshold": best_threshold,
+                "aggregate": val_dice_agg, "std": dice_case_std, "worst": dice_case_worst,
+                "per_gland": per_gland,
                 "precision": precision, "recall": recall,
                 "train_loss": train_loss, "val_loss": val_loss, "train_dice": train_dice,
             },
