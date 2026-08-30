@@ -117,7 +117,12 @@ class SpikingSliceGate(nn.Module):
         mem3 = self.block3.init_mem(B, (stem_h // 4, stem_w // 4), device)
         mem_readout = torch.zeros(B, 128, device=device)
 
-        spike_counts = []
+        # Spike counts are accumulated as device tensors and moved to the host
+        # ONCE, after the loop. Calling .item() inside the loop forces a full
+        # device synchronisation on every time step, which serialises the
+        # pipeline: T syncs per forward, thousands of batches per epoch, for a
+        # diagnostic number nothing reads until the epoch ends.
+        spike_counts_t = []
         readout_spk_sum = torch.zeros(B, 128, device=device)
 
         for t in range(T):
@@ -133,14 +138,15 @@ class SpikingSliceGate(nn.Module):
             spk_ro, mem_readout = self.readout_lif(pooled, mem_readout)
             readout_spk_sum = readout_spk_sum + spk_ro
 
-            spike_counts.append(
-                float((spk_stem.sum() + spk1.sum() + spk2.sum() + spk3.sum() + spk_ro.sum()).item())
+            spike_counts_t.append(
+                spk_stem.sum() + spk1.sum() + spk2.sum() + spk3.sum() + spk_ro.sum()
             )
 
         rate = readout_spk_sum / T  # rate-coded readout across the slice sequence
         feat = self.act(self.head(rate))
         logits = {name: layer(feat).squeeze(-1) for name, layer in self.outputs.items()}
 
+        spike_counts = torch.stack(spike_counts_t).detach().tolist()   # one sync
         spike_stats = {
             "per_timestep_spike_count": spike_counts,
             "total_spike_count": sum(spike_counts),
