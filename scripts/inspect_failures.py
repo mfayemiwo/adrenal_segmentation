@@ -71,6 +71,9 @@ from train_adrenal_segmenter import (          # noqa: E402  (path set above)
     prepare_case,
     setup_logging,
 )
+from src.postprocessing.connected_components import (   # noqa: E402
+    keep_largest_k_components, remove_small_components,
+)
 
 COLOUR = {"left": "#ffb000", "right": "#00b4d8", "gland": "#ffb000", "pred": "#ff2d95"}
 
@@ -95,6 +98,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--n-slices", type=int, default=6, help="axial slices per panel")
     p.add_argument("--threshold", type=float, default=None,
                    help="override the checkpoint's operating threshold")
+    p.add_argument("--min-component-voxels", type=int, default=30,
+                   help="match the value used for the per_case.csv being read")
+    p.add_argument("--keep-largest", type=int, default=1,
+                   help="match the value used for the per_case.csv being read")
+    p.add_argument("--cohort", action="store_true",
+                   help="also run every validation case and report cohort-level patterns "
+                        "(Dice against slice thickness, gland size, and the per-case "
+                        "threshold spread). Adds a few minutes on a GPU.")
+    p.add_argument("--cohort-max", type=int, default=0, help="cap the cohort pass for a quick look")
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
     p.add_argument("--no-figures", action="store_true",
@@ -315,11 +327,23 @@ class Inspector:
             sweep = np.array([dice(p >= t, truth) for t in THRESHOLDS], dtype=float)
             best_i = int(np.nanargmax(sweep)) if np.any(~np.isnan(sweep)) else 0
 
+            # per_case.csv reports the POST-PROCESSED number. Recomputing only the
+            # raw one here would silently disagree with the table above, and the
+            # difference between them is itself a finding: pruning that helps on
+            # average can zero an individual case.
+            pruned = pred.copy()
+            if self.args.min_component_voxels > 0:
+                pruned, _ = remove_small_components(pruned, self.args.min_component_voxels)
+            if self.args.keep_largest > 0 and pruned.any():
+                pruned = keep_largest_k_components(pruned, self.args.keep_largest)
+
             row = {
                 "gland": gland,
                 "truth_voxels": int(truth.sum()),
                 "pred_voxels": int(pred.sum()),
                 "dice": dice(pred, truth),
+                "dice_pp": dice(pruned, truth),
+                "pp_voxels": int(pruned.sum()),
                 "best_dice": float(sweep[best_i]),
                 "best_threshold": float(THRESHOLDS[best_i]),
                 "max_p_in_truth": float(p[truth].max()) if truth.any() else float("nan"),
@@ -339,8 +363,46 @@ class Inspector:
             rows.append(row)
         return rows
 
+    def cohort_scan(self, case_ids, glands) -> list[dict]:
+        """Run every case once and keep only the few numbers that mean something
+        across a cohort rather than within one patient. Predictions are discarded
+        as we go - holding a hundred probability volumes would exhaust memory."""
+        voxel_mm3 = self.geom.spacing_z * self.geom.spacing_xy ** 2
+        rows = []
+        for i, cid in enumerate(case_ids, 1):
+            if cid not in self.records:
+                continue
+            case = self.load_cached(cid)
+            if case is None:
+                continue
+            probs = self._predict(case["image"].astype(np.float32))
+            coded = case["mask"]
+            try:
+                native_z = float(nib.load(str(self.records[cid]["image_path"]))
+                                 .header.get_zooms()[2])
+            except Exception:
+                native_z = float("nan")
+            for c, gland in enumerate(self.channels):
+                truth = self.truth_mask(coded, gland)
+                if not truth.any():
+                    continue
+                p = probs[:, c]
+                sweep = np.array([dice(p >= t, truth) for t in THRESHOLDS], dtype=float)
+                bi = int(np.nanargmax(sweep)) if np.any(~np.isnan(sweep)) else 0
+                rows.append({
+                    "case_id": cid, "gland": gland, "native_z": native_z,
+                    "volume_mm3": float(truth.sum()) * voxel_mm3,
+                    "dice": dice(p >= self.threshold, truth),
+                    "best_dice": float(sweep[bi]),
+                    "best_threshold": float(THRESHOLDS[bi]),
+                })
+            del probs
+            if i % 20 == 0 or i == len(case_ids):
+                self.logger.info("  cohort pass: %d/%d cases", i, len(case_ids))
+        return rows
+
     @staticmethod
-    def verdict(row: dict, audit_entry: dict, fail_below: float) -> str:
+    def verdict(row: dict, audit_entry: dict, fail_below: float, operating: float = 0.5) -> str:
         """A first-pass label. The images decide; this narrows where to look."""
         # Order matters. The geometry verdicts must come before anything derived
         # from the cached volume: a gland cropped out of the field of view has
@@ -355,7 +417,8 @@ class Inspector:
         ret = audit_entry.get("retention")
         lost = ret is not None and ret == ret and ret < 0.5
 
-        if row["dice"] >= fail_below:
+        score = row.get("dice_pp", row["dice"])
+        if score == score and score >= fail_below:
             return "ok" + ("  (note: partly outside the crop)" if cropped else "")
         if cropped:
             return "OUTSIDE CROP - gland is cut off before the network ever sees it"
@@ -364,17 +427,36 @@ class Inspector:
         if not row["truth_voxels"]:
             return ("GONE FROM THE MODEL'S INPUT - the native label exists but nothing "
                     "survives preprocessing")
+
+        # Post-processing is applied to every case but is not always benign: on a
+        # fragmented prediction, keep-largest can delete the component that was
+        # right and keep one that was wrong, turning a poor score into a zero.
+        raw, pp = row["dice"], row.get("dice_pp", float("nan"))
+        if pp == pp and raw == raw and raw > 0.05 and pp < 0.5 * raw:
+            return (f"POST-PROCESSING DESTROYED IT - {raw:.3f} raw becomes {pp:.3f} after "
+                    f"pruning; the largest component is not the correct one")
         if row["swapped_dice"] == row["swapped_dice"] and row["swapped_dice"] > 0.3:
             return "LATERALISATION - found the gland, wrote it to the other channel"
         if not row["pred_voxels"]:
             return "SILENT - predicted nothing anywhere in this scan"
-        if row["max_p_in_truth"] < 0.05:
-            return "GENUINE MISS - almost no response inside the true gland"
+        # max probability saturates at 1.0 on almost any real gland - a handful of
+        # confident voxels is not the same as finding the structure - so the mean
+        # response inside the truth is what separates a miss from a partial hit.
+        if row["mean_p_in_truth"] < 0.02:
+            return "GENUINE MISS - almost no response anywhere inside the true gland"
         if row["best_dice"] >= fail_below:
             return f"THRESHOLD - {row['best_dice']:.3f} reachable at {row['best_threshold']:.2f}"
-        if row["pred_voxels"] > 10 * max(row["truth_voxels"], 1):
+        if row["pred_voxels"] > 4 * max(row["truth_voxels"], 1):
             return (f"OVER-SEGMENTING - {row['pred_voxels']} predicted voxels against "
-                    f"{row['truth_voxels']} true; the threshold is far too low for this case")
+                    f"{row['truth_voxels']} true; this scan needs a far higher threshold")
+        if row["mean_p_in_truth"] < 0.5 * operating and row["pred_voxels"] < row["truth_voxels"]:
+            return (f"UNDER-SEGMENTING - mean probability inside the gland is "
+                    f"{row['mean_p_in_truth']:.3f} against an operating threshold of "
+                    f"{operating:.2f}; the model is unconfident on this scan")
+        ratio = row["best_threshold"] / operating if operating > 0 else float("inf")
+        if ratio > 4 or ratio < 0.25:
+            return (f"MISCALIBRATED - this case wants threshold {row['best_threshold']:.2f}, "
+                    f"the run operates at {operating:.2f}")
         if row["centroid_mm"] == row["centroid_mm"] and row["centroid_mm"] > 40:
             return "WRONG STRUCTURE - prediction is far from the gland"
         if row["truth_voxels"] < 400:
@@ -659,17 +741,21 @@ def main(argv=None) -> int:
     R("swap            prediction scored against the OTHER gland - high means lateralisation")
     R("centroid mm     distance from the predicted centre to the true centre")
     R()
-    R(f"  {'case':<12} {'gland':<6} {'dice':>6} {'best':>6} {'@thr':>5} {'truth':>7} {'pred':>8} "
-      f"{'max p':>7} {'mean p':>7} {'swap':>6} {'cent mm':>8}")
-    R("  " + "-" * 92)
+    R("raw / pp       Dice before and after component pruning. per_case.csv reports pp;")
+    R("               a large drop means pruning kept the wrong component.")
+    R()
+    R(f"  {'case':<12} {'gland':<6} {'raw':>6} {'pp':>6} {'best':>6} {'@thr':>5} {'truth':>7} "
+      f"{'pred':>8} {'max p':>6} {'mean p':>7} {'swap':>6} {'cent mm':>8}")
+    R("  " + "-" * 98)
     diagnoses = {}
     for cid in selected:
         diagnoses[cid] = inspector.diagnose(cid)
         for row in diagnoses[cid]:
-            R(f"  {cid:<12} {row['gland']:<6} {row['dice']:>6.3f} {row['best_dice']:>6.3f} "
-              f"{row['best_threshold']:>5.2f} {row['truth_voxels']:>7d} {row['pred_voxels']:>8d} "
-              f"{row['max_p_in_truth']:>7.3f} {row['mean_p_in_truth']:>7.3f} "
-              f"{row['swapped_dice']:>6.3f} {row['centroid_mm']:>8.1f}")
+            R(f"  {cid:<12} {row['gland']:<6} {row['dice']:>6.3f} {row['dice_pp']:>6.3f} "
+              f"{row['best_dice']:>6.3f} {row['best_threshold']:>5.2f} {row['truth_voxels']:>7d} "
+              f"{row['pred_voxels']:>8d} {row['max_p_in_truth']:>6.3f} "
+              f"{row['mean_p_in_truth']:>7.3f} {row['swapped_dice']:>6.3f} "
+              f"{row['centroid_mm']:>8.1f}")
     R()
 
     # -- 4. verdicts ------------------------------------------------------ #
@@ -683,14 +769,77 @@ def main(argv=None) -> int:
         for row in diagnoses[cid]:
             e = audits[cid]["glands"].get(row["gland"], {})
             R(f"  {cid:<12} {row['gland']:<6} {row['dice']:>6.3f}  "
-              f"{inspector.verdict(row, e, args.fail_below)}")
+              f"{inspector.verdict(row, e, args.fail_below, inspector.threshold)}")
     R()
 
-    # -- 5. figures ------------------------------------------------------- #
+    # -- 5. cohort -------------------------------------------------------- #
+    if args.cohort:
+        ids = [r["case_id"] for r in per_case]
+        if args.cohort_max:
+            ids = ids[: args.cohort_max]
+        logger.info("Cohort pass over %d cases - this is the slow part.", len(ids))
+        crows = inspector.cohort_scan(ids, glands)
+
+        R.rule("=")
+        R("5. COHORT PATTERNS")
+        R.rule("=")
+        if not crows:
+            R("  no usable cases in the cohort pass")
+        else:
+            at_global = np.array([r["dice"] for r in crows], dtype=float)
+            at_best = np.array([r["best_dice"] for r in crows], dtype=float)
+            best_thr = np.array([r["best_threshold"] for r in crows], dtype=float)
+
+            R("Calibration headroom - what a perfect per-case threshold would be worth.")
+            R("The oracle is not achievable (it peeks at the answer), but it bounds what")
+            R("better calibration could buy, and separates that from model capacity.")
+            R()
+            R(f"  one global threshold ({inspector.threshold:.2f}):  mean Dice "
+              f"{np.nanmean(at_global):.4f}")
+            R(f"  per-case oracle threshold:        mean Dice {np.nanmean(at_best):.4f}"
+              f"   (+{np.nanmean(at_best) - np.nanmean(at_global):.4f})")
+            R()
+            lo = int((best_thr < 0.5 * inspector.threshold).sum())
+            hi = int((best_thr > 2.0 * inspector.threshold).sum())
+            R(f"  {lo} of {len(crows)} glands want a threshold below half the operating point,")
+            R(f"  {hi} want more than double it. A wide spread means the probability scale")
+            R("  is not comparable between scans - normalisation, not capacity.")
+            R()
+
+            def bucket(title, key, buckets):
+                R(f"  Dice by {title}")
+                for lo_b, hi_b, name in buckets:
+                    vals = [r["dice"] for r in crows
+                            if r[key] == r[key] and lo_b <= r[key] < hi_b]
+                    if not vals:
+                        continue
+                    R(f"    {name:<16} n={len(vals):>4}   mean {np.mean(vals):.4f}   "
+                      f"median {np.median(vals):.4f}   min {np.min(vals):.4f}")
+                R()
+
+            bucket("native slice thickness", "native_z",
+                   [(0, 1.51, "<= 1.5 mm"), (1.51, 3.01, "2 - 3 mm"),
+                    (3.01, 4.01, "3 - 4 mm"), (4.01, 99.0, ">= 5 mm")])
+
+            vols = np.array([r["volume_mm3"] for r in crows], dtype=float)
+            q = np.percentile(vols, [25, 50, 75])
+            bucket("gland volume", "volume_mm3",
+                   [(0, q[0], f"< {q[0]:.0f} mm3"), (q[0], q[1], f"{q[0]:.0f} - {q[1]:.0f}"),
+                    (q[1], q[2], f"{q[1]:.0f} - {q[2]:.0f}"), (q[2], 1e12, f"> {q[2]:.0f} mm3")])
+
+            cohort_csv = out_dir / "cohort.csv"
+            with cohort_csv.open("w", newline="", encoding="utf-8") as fh:
+                w = csv.DictWriter(fh, fieldnames=list(crows[0].keys()))
+                w.writeheader()
+                w.writerows(crows)
+            R(f"  Full table: {cohort_csv}")
+        R()
+
+    # -- 6. figures ------------------------------------------------------- #
     written = []
     if not args.no_figures:
         R.rule("=")
-        R("5. FIGURES")
+        R("6. FIGURES")
         R.rule("=")
         for cid in selected:
             failing = [r["gland"] for r in diagnoses[cid] if r["dice"] < args.fail_below]
@@ -730,8 +879,14 @@ def main(argv=None) -> int:
             R(f"  {p}")
         R()
 
+    if args.no_figures:
+        R.rule("=")
+        R("6. FIGURES - skipped (--no-figures)")
+        R.rule("=")
+        R()
+
     R.rule("=")
-    R("6. WHAT EACH VERDICT MEANS FOR THE NEXT RUN")
+    R("7. WHAT EACH VERDICT MEANS FOR THE NEXT RUN")
     R.rule("=")
     R("  OUTSIDE CROP      raise --image-size, or crop around the body rather than the image")
     R("                    centre. No amount of training recovers a gland that was deleted.")
@@ -748,6 +903,14 @@ def main(argv=None) -> int:
     R("                    input - a preprocessing bug, and the most important one to fix.")
     R("  WRONG STRUCTURE   add a position prior to post-processing (reject components on the")
     R("                    wrong side of the midline or far from the kidney).")
+    R("  UNDER-SEGMENTING  the mean response inside the gland sits below the operating")
+    R("                    threshold; the model found the structure but is unconfident.")
+    R("  MISCALIBRATED     this case's own best threshold is far from the global one - the")
+    R("                    probability scale is not comparable across scans. Per-volume")
+    R("                    z-scoring is the usual cause; dataset-level normalisation is the fix.")
+    R("  POST-PROCESSING DESTROYED IT  keep-largest kept the wrong component. Select the")
+    R("                    component by position (side of the midline, distance to the")
+    R("                    kidney) rather than by size, or keep the top two.")
     R("  very small gland  expected; report it rather than tuning for it.")
     R()
 
