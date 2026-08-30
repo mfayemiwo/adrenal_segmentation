@@ -588,7 +588,13 @@ def main(argv=None) -> int:
     if args.smoke_test:
         apply_smoke_test(args, explicitly_provided(argv))
 
-    run_name = args.run_name or ("gate_" + args.model + ("_static" if args.static_repeat else ""))
+    # A smoke test defaults to its own run directory. Sharing one with the real
+    # run is harmless for the checkpoints (overwritten on epoch 1, and there is
+    # no auto-resume) but metrics.csv and train.log both APPEND, so the throwaway
+    # epochs would sit under the real ones in every plot you make afterwards.
+    run_name = args.run_name or ("gate_" + args.model
+                                 + ("_static" if args.static_repeat else "")
+                                 + ("_smoke" if args.smoke_test else ""))
     run_dir = args.runs_dir / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     progress_path = run_dir / "progress.txt"
