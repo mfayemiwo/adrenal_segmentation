@@ -52,6 +52,9 @@ src/evaluation/             Dice/IoU/HD95/NSD, sensitivity/NPV/F2/PR-AUC/calibra
 src/inference/pipeline.py   end-to-end: gate -> uncertainty buffer -> segment -> post-process
 scripts/
     train_slice_gate.py          Stage A gate training - arms D / E / G (see below)
+    evaluate_slice_gate.py       Stage A on whole volumes - the deployment number
+    probe_order_sensitivity.py   control: can the architecture use slice order at all?
+    sweep_snn_gate.sbatch        spiking-gate configuration sweep
     train_adrenal_segmenter.py   standalone Stage B training run (see "Training" below)
     evaluate_segmenter.py        full-volume evaluation, per-case CSV + report
     inspect_failures.py          headless diagnosis of the cases that score near zero
@@ -199,11 +202,60 @@ gland-bearing slices, and the headline is how many slices the gate removes at
 that point. Checkpoint selection uses PR-AUC, which is threshold-free and stable
 before the model separates the classes at all.
 
-**On negatives.** The shared cache keeps `--z-margin` slices either side of the
-gland, so a negative here is a *near-gland* slice - the hard-negative regime,
-which is the right one for discrimination but not a whole-volume deployment
-number. Rebuild with a large `--z-margin` for that; the script says so at
-startup rather than letting the specificity be quietly over-read.
+**On negatives, and the number you actually report.** The shared cache keeps
+`--z-margin` slices either side of the gland, so a negative during training is a
+*near-gland* slice - the hard-negative regime, right for learning to discriminate
+but the wrong denominator for the paper. In use the gate runs over a whole
+abdominal CT where most slices are trivially rejectable, so the training-time
+slice reduction *understates* it.
+
+`scripts/evaluate_slice_gate.py` measures the real thing. It streams each case
+through the same preprocessing at full z-extent and discards it, so it needs no
+cache and no disk:
+
+```bash
+python scripts/evaluate_slice_gate.py --checkpoint runs/gate_snn/best_model.pt \
+    --data-root ../data/amos22
+cat runs/gate_snn/full_volume/gate_evaluation_report.txt
+```
+
+The two are comparable because `prepare_case` z-scores over the whole resampled
+volume *before* cropping in z - changing `--z-margin` changes which slices you
+see, not what any one of them looks like. The report gives slices removed at the
+retention target, metrics at both the training threshold and one recalibrated on
+full volumes, the fixed-width buffer trade-off that the uncertainty-adaptive
+buffer must beat, and where lost gland slices sit (an end slice trims the gland;
+an interior one splits it, and Stage B recovers neither).
+
+## Can the spiking gate use slice order at all?
+
+The first ablation found arm E beating arm G by 0.0035 PR-AUC - not at all.
+That has two explanations calling for opposite responses: the architecture
+cannot represent slice order (a defect), or it can but the order carries little
+signal for gland presence (a finding). Real data cannot tell them apart.
+
+```bash
+python scripts/probe_order_sensitivity.py
+```
+
+A blob translates through a stack of k slices; the ascending class is the
+descending class reversed, so both contain exactly the same slices and only the
+order separates them. A model that cannot represent order sits at 50% forever.
+
+**Arm E, exactly as run, scores 99.5%.** The architecture is not the problem, so
+the null result is a statement about the data rather than a bug - and the probe
+is what lets that be claimed instead of assumed.
+
+`scripts/sweep_snn_gate.sbatch` is aimed accordingly: at generalisation (the
+spiking arms overfit badly, the CNN-LSTM does not) rather than at the readout,
+plus a k = 9 run of both arms, since a longer window should help a true sequence
+more than a control that gains only redundancy.
+
+The spiking gate's options (`--readout`, `--norm`, `--learn-beta`,
+`--learn-threshold`, `--surrogate`, `--surrogate-slope`) all default to the
+original behaviour, verified bit-identical. Note that `--readout integrator` is
+a non-spiking output layer: the network becomes a hybrid, which weakens any
+neuromorphic-energy argument and must be stated.
 
 ## Inspecting failures
 

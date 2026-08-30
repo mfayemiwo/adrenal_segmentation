@@ -133,6 +133,28 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--beta", type=float, default=0.9, help="LIF membrane decay (snn only)")
     g.add_argument("--lif-threshold", type=float, default=1.0, help="LIF firing threshold (snn only)")
     g.add_argument("--lstm-layers", type=int, default=1, help="cnn_lstm only")
+    g.add_argument("--readout", choices=["rate", "integrator"], default="rate",
+                   help="snn only. 'rate' (default) is the original spike-count readout. "
+                        "'integrator' uses a non-spiking leaky integrator, whose final "
+                        "membrane is continuous-valued rather than an integer in 0..k. "
+                        "Note that an analog readout means the network is no longer purely "
+                        "spiking, which must be stated in any neuromorphic-energy claim.")
+    g.add_argument("--norm", choices=["batch", "step", "group"], default="batch",
+                   help="snn only. 'batch' (default) applies one BatchNorm at every time "
+                        "step, updating its running statistics k times per forward on k "
+                        "different distributions - a train/eval mismatch and a candidate "
+                        "cause of the spiking arms' generalisation gap. 'step' gives each "
+                        "time step its own BatchNorm; 'group' removes running statistics "
+                        "entirely.")
+    g.add_argument("--learn-beta", action="store_true",
+                   help="snn only: make the LIF membrane decay learnable")
+    g.add_argument("--learn-threshold", action="store_true",
+                   help="snn only: make the LIF firing threshold learnable")
+    g.add_argument("--surrogate", choices=["fast_sigmoid", "atan"], default="fast_sigmoid",
+                   help="snn only: surrogate gradient function")
+    g.add_argument("--surrogate-slope", type=float, default=25.0,
+                   help="snn only: slope (fast_sigmoid) or alpha (atan). The default 25 is "
+                        "steep, which thins gradients propagated through k time steps.")
     g.add_argument("--lstm-hidden", type=int, default=128,
                    help="cnn_lstm only. 128 reproduces the model as originally written, "
                         "which is NOT capacity-matched to the spiking gate - the LSTM's four "
@@ -524,7 +546,12 @@ def build_models(args, logger):
     def _snn():
         return SpikingSliceGate(slice_window=args.slice_window, in_channels=1,
                                 hidden_dim=args.hidden_dim, beta=args.beta,
-                                threshold=args.lif_threshold, heads=HEADS)
+                                threshold=args.lif_threshold, heads=HEADS,
+                                readout=args.readout, norm=args.norm,
+                                learn_beta=args.learn_beta,
+                                learn_threshold=args.learn_threshold,
+                                surrogate_fn=args.surrogate,
+                                surrogate_slope=args.surrogate_slope)
 
     def _lstm():
         return CNNLSTMSliceGate(slice_window=args.slice_window, in_channels=1,
@@ -617,6 +644,15 @@ def main(argv=None) -> int:
     logger.info("=" * 78)
     logger.info("STAGE A - slice gate | run '%s' | arm: %s%s", run_name, args.model,
                 " + static-repeat (arm G)" if args.static_repeat else "")
+    if args.model == "snn":
+        logger.info("Spiking configuration: readout=%s norm=%s learn_beta=%s "
+                    "learn_threshold=%s surrogate=%s(%.3g) beta=%.3g threshold=%.3g",
+                    args.readout, args.norm, args.learn_beta, args.learn_threshold,
+                    args.surrogate, args.surrogate_slope, args.beta, args.lif_threshold)
+        if args.readout == "integrator":
+            logger.warning("readout=integrator is a NON-SPIKING output layer: the network "
+                           "is now a hybrid, not a pure SNN. Any neuromorphic energy or "
+                           "latency claim must say so.")
     logger.info("=" * 78)
     logger.info("Device %s | AMP %s | torch %s", device, use_amp, torch.__version__)
     if device.type == "cuda":
