@@ -52,8 +52,12 @@ src/evaluation/             Dice/IoU/HD95/NSD, sensitivity/NPV/F2/PR-AUC/calibra
 src/inference/pipeline.py   end-to-end: gate -> uncertainty buffer -> segment -> post-process
 scripts/
     train_adrenal_segmenter.py   standalone Stage B training run (see "Training" below)
+    evaluate_segmenter.py        full-volume evaluation, per-case CSV + report
+    inspect_failures.py          headless diagnosis of the cases that score near zero
     run_ablation.py              orchestrates the 8-arm ablation matrix (docs/methodology.docx)
-notebooks/                  AMOS22 data inspection, label checks, overlay visualisation
+notebooks/
+    amos22_adrenal_experiments.ipynb  data inspection, label checks, overlay visualisation
+    inspect_failure_cases.ipynb       why individual validation cases score near zero
 docs/                       methodology.docx + architecture figures
 tests/                      unit tests against synthetic tensors (no patient data required)
 ```
@@ -151,6 +155,39 @@ Notes that matter for results:
 
 Run `--help` for the full option list (spacing, image size, encoder, batch
 size, max epochs, early-stopping patience, augmentation).
+
+## Inspecting failures
+
+Mean Dice hides the cases that matter. `scripts/evaluate_segmenter.py` writes a
+per-case table; `notebooks/inspect_failure_cases.ipynb` explains the rows at the
+bottom of it.
+
+```bash
+python scripts/evaluate_segmenter.py --checkpoint runs/run5/best_model.pt \
+    --data-root ../data/amos22 --cache-dir ../cache
+jupyter lab notebooks/inspect_failure_cases.ipynb     # edit the paths in cell 1
+```
+
+If you cannot run Jupyter - no desktop session, a full home quota, or you simply
+prefer batch - `scripts/inspect_failures.py` performs the same analysis headlessly
+and writes a text report plus a directory of PNGs:
+
+```bash
+python scripts/inspect_failures.py --checkpoint runs/run5/best_model.pt \
+    --data-root ../data/amos22 --cache-dir ../cache
+
+cat runs/run5/inspection/inspection_report.txt     # tables and per-gland verdicts
+ls  runs/run5/inspection/figures/                  # overlays to copy down and view
+```
+
+Add `--no-figures` for the tables alone (seconds), `--cases amos_0346 amos_0333`
+to pick specific patients, or `--top 8` to widen the automatic selection.
+
+For each failing case, both separate the five explanations that a mean cannot:
+an annotation error, an anatomical variant, a gland cropped out of the field of
+view, a lateralisation error (right gland written to the left channel), and a
+genuine miss. Both reuse `GeometryConfig` / `prepare_case` from the training
+script, so what they draw is what the network actually saw, and both run on CPU.
 
 ## Novel contributions (map to code)
 
