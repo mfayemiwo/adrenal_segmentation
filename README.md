@@ -51,6 +51,7 @@ src/postprocessing/         TTA and connected-component pruning (carried over fr
 src/evaluation/             Dice/IoU/HD95/NSD, sensitivity/NPV/F2/PR-AUC/calibration, empty-slice FP rate
 src/inference/pipeline.py   end-to-end: gate -> uncertainty buffer -> segment -> post-process
 scripts/
+    train_slice_gate.py          Stage A gate training - arms D / E / G (see below)
     train_adrenal_segmenter.py   standalone Stage B training run (see "Training" below)
     evaluate_segmenter.py        full-volume evaluation, per-case CSV + report
     inspect_failures.py          headless diagnosis of the cases that score near zero
@@ -155,6 +156,54 @@ Notes that matter for results:
 
 Run `--help` for the full option list (spacing, image size, encoder, batch
 size, max epochs, early-stopping patience, augmentation).
+
+## Training the gate (Stage A)
+
+Stage A decides which slices are worth segmenting; Stage B segments only those.
+`scripts/train_slice_gate.py` trains it, and reads the **same volume cache** as
+the segmenter, so nothing needs rebuilding and the two stages cannot drift.
+
+```bash
+python scripts/train_slice_gate.py --data-root ../data/amos22 --smoke-test   # ~2 min
+
+sbatch scripts/train_slice_gate.sbatch      # all three arms, one after another
+tail -f runs/gate_snn/progress.txt
+```
+
+Three arms, differing by one flag each and identical in everything else -
+sampler, augmentation, schedule, seed, metric. That is the point: the claim is
+that the spiking gate beats the recurrent baseline *given the same windows*.
+
+| arm | flags | what it tests |
+| --- | --- | --- |
+| E | `--model snn` | k consecutive slices as k SNN time steps - the contribution |
+| D | `--model cnn_lstm --lstm-hidden 32` | matched-capacity recurrent baseline |
+| G | `--model snn --static-repeat` | the centre slice repeated k times: conventional rate coding with no anatomy in the time axis |
+
+Arm G is the one that tests the framing. If the sequence-aware gate does not
+beat the static-repeat control, the temporal axis is carrying no anatomical
+information and the paper's central claim needs restating.
+
+**On capacity matching.** `CNNLSTMSliceGate` at its original `lstm_hidden=128`
+carries 417,762 parameters against the spiking gate's 285,666 - 46% more, from
+the LSTM's four gate matrices, for which LIF membrane integration has no
+counterpart. "Matched-capacity baseline" is therefore only accurate at
+`--lstm-hidden 32` (281,826, within 2%). The trainer prints both counts at
+startup and warns when they diverge; either match them or report the confound.
+
+**What is optimised.** Not accuracy. A missed positive slice removes adrenal
+tissue from the segmenter's input permanently; a false positive costs one wasted
+segmentation. The operating threshold is therefore chosen post hoc as the
+highest threshold retaining `--target-sensitivity` (default 99%) of
+gland-bearing slices, and the headline is how many slices the gate removes at
+that point. Checkpoint selection uses PR-AUC, which is threshold-free and stable
+before the model separates the classes at all.
+
+**On negatives.** The shared cache keeps `--z-margin` slices either side of the
+gland, so a negative here is a *near-gland* slice - the hard-negative regime,
+which is the right one for discrimination but not a whole-volume deployment
+number. Rebuild with a large `--z-margin` for that; the script says so at
+startup rather than letting the specificity be quietly over-read.
 
 ## Inspecting failures
 

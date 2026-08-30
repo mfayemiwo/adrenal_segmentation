@@ -31,7 +31,7 @@ class _ConvBlock(nn.Module):
 
 class CNNLSTMSliceGate(nn.Module):
     def __init__(self, slice_window: int = 5, in_channels: int = 1, hidden_dim: int = 256,
-                 lstm_layers: int = 1,
+                 lstm_layers: int = 1, lstm_hidden: int = 128,
                  heads: tuple[str, ...] = ("left_present", "right_present")):
         super().__init__()
         self.slice_window = slice_window
@@ -47,8 +47,15 @@ class CNNLSTMSliceGate(nn.Module):
         self.block3 = _ConvBlock(128, 128, stride=1)
         self.pool = nn.AdaptiveAvgPool2d(1)
 
-        self.lstm = nn.LSTM(input_size=128, hidden_size=128, num_layers=lstm_layers, batch_first=True)
-        self.head = nn.Linear(128, hidden_dim)
+        # lstm_hidden defaults to 128, reproducing this model as first written.
+        # Note that at 128 it is NOT capacity-matched to SpikingSliceGate: the four
+        # LSTM gate matrices add ~132k parameters for which LIF membrane integration
+        # has no counterpart, so the "matched-capacity baseline" claim only holds
+        # once this is tuned (32 matches within a few percent). scripts/
+        # train_slice_gate.py prints both counts at startup and warns on a mismatch.
+        self.lstm = nn.LSTM(input_size=128, hidden_size=lstm_hidden,
+                            num_layers=lstm_layers, batch_first=True)
+        self.head = nn.Linear(lstm_hidden, hidden_dim)
         self.act = nn.ReLU(inplace=True)
         self.outputs = nn.ModuleDict({name: nn.Linear(hidden_dim, 1) for name in heads})
 
