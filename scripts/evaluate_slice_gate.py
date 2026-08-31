@@ -118,6 +118,11 @@ def dilate_1d(keep: np.ndarray, buffer: int) -> np.ndarray:
 def build_gate(cfg, device):
     import torch
 
+    # Every option the trainer exposes must be read back from the checkpoint's
+    # config. Rebuilding with defaults produces a DIFFERENT architecture from the
+    # one that was trained: a GroupNorm checkpoint fails to load into a BatchNorm
+    # model, and other mismatches can load quietly and score a model that never
+    # existed. Anything added to train_slice_gate.py belongs here too.
     model_name = str(cfg.get("model", "snn"))
     if model_name == "snn":
         from src.models.snn_gate import SpikingSliceGate
@@ -125,14 +130,22 @@ def build_gate(cfg, device):
             slice_window=int(cfg.get("slice_window", 5)), in_channels=1,
             hidden_dim=int(cfg.get("hidden_dim", 256)),
             beta=float(cfg.get("beta", 0.9)),
-            threshold=float(cfg.get("lif_threshold", 1.0)), heads=HEADS)
+            threshold=float(cfg.get("lif_threshold", 1.0)), heads=HEADS,
+            readout=str(cfg.get("readout", "rate")),
+            norm=str(cfg.get("norm", "batch")),
+            learn_beta=bool(cfg.get("learn_beta", False)),
+            learn_threshold=bool(cfg.get("learn_threshold", False)),
+            surrogate_fn=str(cfg.get("surrogate", "fast_sigmoid")),
+            surrogate_slope=float(cfg.get("surrogate_slope", 25.0)))
     else:
         from src.models.cnn_lstm_gate import CNNLSTMSliceGate
         model = CNNLSTMSliceGate(
             slice_window=int(cfg.get("slice_window", 5)), in_channels=1,
             hidden_dim=int(cfg.get("hidden_dim", 256)),
             lstm_layers=int(cfg.get("lstm_layers", 1)),
-            lstm_hidden=int(cfg.get("lstm_hidden", 128)), heads=HEADS)
+            lstm_hidden=int(cfg.get("lstm_hidden", 128)), heads=HEADS,
+            norm=str(cfg.get("norm", "batch")),
+            readout=str(cfg.get("lstm_readout", "last")))
     return model, model_name
 
 
