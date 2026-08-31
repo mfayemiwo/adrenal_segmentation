@@ -74,9 +74,9 @@ except ImportError as exc:  # pragma: no cover
         "snnTorch is required for the spiking gate; pip install snntorch"
     ) from exc
 
+from src.models.norm import NORMS, apply_norm, build_norm   # noqa: F401  (re-exported)
+
 READOUTS = ("rate", "integrator")
-NORMS = ("batch", "step", "group")
-GROUP_NORM_GROUPS = 8          # divides 32, 64 and 128
 
 
 def build_surrogate(name: str = "fast_sigmoid", slope: float = 25.0):
@@ -85,22 +85,6 @@ def build_surrogate(name: str = "fast_sigmoid", slope: float = 25.0):
     if name == "atan":
         return surrogate.atan(alpha=slope)
     raise ValueError(f"unknown surrogate '{name}' (expected fast_sigmoid or atan)")
-
-
-def build_norm(kind: str, channels: int, time_steps: int) -> nn.Module:
-    """Returns a module that is either applied directly, or indexed by time
-    step when `kind == 'step'`."""
-    if kind == "batch":
-        return nn.BatchNorm2d(channels)
-    if kind == "group":
-        return nn.GroupNorm(GROUP_NORM_GROUPS, channels)
-    if kind == "step":
-        return nn.ModuleList([nn.BatchNorm2d(channels) for _ in range(time_steps)])
-    raise ValueError(f"unknown norm '{kind}' (expected one of {NORMS})")
-
-
-def apply_norm(module: nn.Module, x: torch.Tensor, t: int) -> torch.Tensor:
-    return module[t](x) if isinstance(module, nn.ModuleList) else module(x)
 
 
 class _SpikingConvBlock(nn.Module):
