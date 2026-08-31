@@ -140,6 +140,22 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--encoder-weights", type=str, default="imagenet",
                        help='"imagenet" or "none" (from scratch - not recommended)')
     model.add_argument("--decoder-attention", type=str, default="scse", choices=["none", "scse"])
+    model.add_argument("--loss", choices=["dice_focal", "iou_focal"], default="dice_focal",
+                       help="'dice_focal' (default) or 'iou_focal'. The 2025 reference "
+                            "pipeline used the Jaccard index as its loss; IoU = Dice/(2-Dice), "
+                            "so IoU penalises false positives more sharply, which is not "
+                            "obviously irrelevant for a structure at ~0.3%% of pixels.")
+
+    preproc = p.add_argument_group("preprocessing (changes the cache key - rebuilds the cache)")
+    preproc.add_argument("--hu-window", type=float, nargs=2, metavar=("LO", "HI"),
+                         default=[-135.0, 215.0],
+                         help="HU clip range. The 2025 pipeline used a much tighter (10, 60) "
+                              "soft-tissue window.")
+    preproc.add_argument("--clahe", action="store_true",
+                         help="apply CLAHE per slice after HU windowing, as the 2025 pipeline "
+                              "did. NOTE: slow to build (adaptive histogram equalisation runs "
+                              "per slice over the whole volume) - budget an extra 30-60 min for "
+                              "the first cache build.")
 
     optim = p.add_argument_group("optimisation")
     optim.add_argument("--max-epochs", type=int, default=200, help="hard cap on epochs")
@@ -440,6 +456,7 @@ class GeometryConfig:
     image_size: int
     z_margin: int
     hu_window: tuple[float, float] = (-135.0, 215.0)
+    clahe: bool = False
     right_label: int = 11
     left_label: int = 12
 
@@ -449,6 +466,7 @@ class GeometryConfig:
         # not be silently reused.
         return (f"v2_z{self.spacing_z:g}_xy{self.spacing_xy:g}_s{self.image_size}"
                 f"_m{self.z_margin}_hu{self.hu_window[0]:g},{self.hu_window[1]:g}"
+                f"{'_clahe' if self.clahe else ''}"
                 f"_l{self.right_label}-{self.left_label}")
 
 
@@ -519,6 +537,15 @@ def prepare_case(record: dict, geom: GeometryConfig) -> dict | None:
     # HU window -> [0, 1], then z-score over the volume (matches src/data/preprocessing).
     lo, hi = geom.hu_window
     image = (np.clip(image, lo, hi) - lo) / max(hi - lo, 1e-6)
+    if geom.clahe:
+        # Per-slice adaptive histogram equalisation, matching the 2025 pipeline.
+        # Applied after windowing and before the z-score, since CLAHE expects
+        # input in [0, 1] and the z-score must reflect what the network sees.
+        from skimage import exposure
+        image = np.stack([
+            exposure.equalize_adapthist(sl, clip_limit=0.01).astype(np.float32)
+            for sl in image
+        ])
     mean, std = float(image.mean()), float(image.std())
     image = (image - mean) / std if std > 1e-6 else image - mean
 
@@ -876,6 +903,8 @@ def main(argv=None) -> int:
     logger.info("Cases discovered: %d train / %d validation", len(train_records), len(val_records))
 
     geom = GeometryConfig(
+        hu_window=(float(args.hu_window[0]), float(args.hu_window[1])),
+        clahe=bool(args.clahe),
         spacing_z=args.target_spacing_z, spacing_xy=args.target_spacing_xy,
         image_size=args.image_size, z_margin=args.z_margin,
         right_label=args.right_label, left_label=args.left_label,
@@ -953,7 +982,13 @@ def main(argv=None) -> int:
         logger.warning("Training the encoder from scratch. On a structure this small that usually "
                        "needs far more data and epochs; --encoder-weights imagenet is strongly advised.")
 
-    criterion = DiceFocalLoss(batch_dice=args.batch_dice)
+    if args.loss == "iou_focal":
+        from src.models.losses import IoUFocalLoss
+        criterion = IoUFocalLoss(batch_dice=args.batch_dice)
+    else:
+        criterion = DiceFocalLoss(batch_dice=args.batch_dice)
+    logger.info("Loss %s | HU window %s | CLAHE %s | encoder weights %s",
+                args.loss, tuple(args.hu_window), args.clahe, args.encoder_weights)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 

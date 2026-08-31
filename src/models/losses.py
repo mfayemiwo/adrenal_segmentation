@@ -111,3 +111,52 @@ class DiceFocalLoss(nn.Module):
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         return self.dice_weight * self.dice(logits, targets) + self.focal_weight * self.focal(logits, targets)
+
+
+class IoULoss(nn.Module):
+    """Soft Jaccard (intersection-over-union), optionally pooled over the batch.
+
+    The 2025 reference pipeline used the Jaccard index as its loss, so this
+    exists to test whether that choice accounts for any of the difference in
+    result. It is not interchangeable with Dice: for the same prediction,
+    IoU = Dice / (2 - Dice), so IoU is always the smaller number and its
+    gradient penalises false positives more sharply. On a structure occupying
+    ~0.3% of pixels, where the model's errors are dominated by boundary voxels
+    on a small object, that difference is not obviously negligible.
+
+    `batch_dice` pools intersection and union across the batch before dividing,
+    for exactly the reason documented on DiceLoss: with left and right as
+    separate channels, many slices leave one channel's target empty, and
+    per-sample scoring then produces a gradient that says "predict nothing".
+    """
+
+    def __init__(self, smooth: float = 1.0, batch_dice: bool = True):
+        super().__init__()
+        self.smooth = smooth
+        self.batch_dice = batch_dice
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        probs = torch.sigmoid(logits)
+        targets = targets.float()
+        spatial = tuple(range(2, probs.ndim))
+        dims = (0,) + spatial if self.batch_dice else spatial
+        intersection = (probs * targets).sum(dim=dims)
+        union = probs.sum(dim=dims) + targets.sum(dim=dims) - intersection
+        iou = (intersection + self.smooth) / (union + self.smooth)
+        return 1 - iou.mean()
+
+
+class IoUFocalLoss(nn.Module):
+    """IoU counterpart of DiceFocalLoss, so the two differ only in the overlap
+    term and the comparison isolates that choice."""
+
+    def __init__(self, iou_weight: float = 1.0, focal_weight: float = 1.0, gamma: float = 2.0,
+                 batch_dice: bool = True):
+        super().__init__()
+        self.iou = IoULoss(batch_dice=batch_dice)
+        self.focal = FocalBCELoss(gamma=gamma)
+        self.iou_weight = iou_weight
+        self.focal_weight = focal_weight
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        return self.iou_weight * self.iou(logits, targets) + self.focal_weight * self.focal(logits, targets)
