@@ -84,6 +84,7 @@ python -u scripts/train_adrenal_segmenter.py \
     --min-lr 1e-6 \
     --weight-decay 1e-4 \
     --event-threshold 0.05 \
+    --fixed-neuron-params \
     --snn-readout membrane
 
 python -u scripts/evaluate_segmenter.py \
