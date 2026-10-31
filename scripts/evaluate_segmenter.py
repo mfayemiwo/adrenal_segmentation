@@ -64,6 +64,9 @@ from train_adrenal_segmenter import (          # noqa: E402  (path set above)
 from src.postprocessing.connected_components import (  # noqa: E402
     count_components, keep_largest_k_components, remove_small_components,
 )
+from src.evaluation.metrics import (  # noqa: E402
+    hausdorff_distance_95, normalized_surface_dice,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -98,6 +101,46 @@ def dice(pred: np.ndarray, truth: np.ndarray) -> float:
     if denom == 0:
         return 1.0            # correctly predicted nothing where there is nothing
     return float(2.0 * np.logical_and(pred, truth).sum() / denom)
+
+
+def _crop_to_union(pred: np.ndarray, truth: np.ndarray, pad: int = 2):
+    union = np.logical_or(pred, truth)
+    coords = np.argwhere(union)
+    if coords.size == 0:
+        return pred, truth
+    lo = np.maximum(coords.min(axis=0) - pad, 0)
+    hi = np.minimum(coords.max(axis=0) + pad + 1, pred.shape)
+    sl = tuple(slice(int(a), int(b)) for a, b in zip(lo, hi))
+    return pred[sl], truth[sl]
+
+
+def boundary_metrics(
+    pred: np.ndarray,
+    truth: np.ndarray,
+    spacing: tuple[float, float, float],
+) -> tuple[float, float]:
+    if not pred.any() or not truth.any():
+        return float("nan"), float("nan")
+    pred_c, truth_c = _crop_to_union(pred, truth)
+    return (
+        hausdorff_distance_95(pred_c, truth_c, spacing=spacing),
+        normalized_surface_dice(pred_c, truth_c, tolerance_mm=2.0, spacing=spacing),
+    )
+
+
+def z_presence_metrics(pred: np.ndarray, truth: np.ndarray) -> tuple[float, int, int]:
+    """Score continuity along the slice axis independently of in-plane overlap."""
+    p = pred.any(axis=(1, 2))
+    t = truth.any(axis=(1, 2))
+    z_dice = dice(p, t)
+
+    def runs(active):
+        if not active.any():
+            return 0
+        padded = np.pad(active.astype(np.int8), (1, 0))
+        return int(np.sum(np.diff(padded) == 1))
+
+    return z_dice, runs(p), runs(t)
 
 
 
@@ -172,6 +215,25 @@ def write_report(path: Path, *, checkpoint, settings, channel_names, stage_score
     add("")
     add(" A mean well below the median means a small number of failing patients is")
     add(" carrying the result. Those cases are listed below - fix them before tuning.")
+    add("")
+
+    add("-" * 78)
+    add(" BOUNDARY + THROUGH-PLANE CONSISTENCY (after post-processing)")
+    add("-" * 78)
+    add(f" {'gland':<8}{'HD95 mm':>12}{'NSD@2mm':>12}{'z-Dice':>12}{'frag err':>12}")
+    for name in channel_names:
+        hd = np.asarray([r[f"hd95_{name}_mm"] for r in rows], dtype=float)
+        nsd = np.asarray([r[f"nsd2mm_{name}"] for r in rows], dtype=float)
+        zd = np.asarray([r[f"z_presence_dice_{name}"] for r in rows], dtype=float)
+        fe = np.asarray([r[f"z_fragment_error_{name}"] for r in rows], dtype=float)
+        add(
+            f" {name:<8}{np.nanmean(hd):12.3f}{np.nanmean(nsd):12.4f}"
+            f"{np.nanmean(zd):12.4f}{np.nanmean(fe):12.3f}"
+        )
+    add("")
+    add(" z-Dice scores which axial slices contain the gland, independent of in-plane")
+    add(" overlap. Fragment error measures extra/missing contiguous z-runs. These are")
+    add(" direct tests of whether the temporal refiner improves through-plane coherence.")
     add("")
 
     add("-" * 78)
@@ -394,12 +456,21 @@ def main(argv=None) -> int:
             if args.keep_largest > 0 and pruned.any():
                 pruned = keep_largest_k_components(pruned, args.keep_largest)
             d_pp = dice(pruned, truth)
+            spacing = (geom.spacing_z, geom.spacing_xy, geom.spacing_xy)
+            hd95, nsd2 = boundary_metrics(pruned, truth, spacing)
+            z_dice, z_runs_pred, z_runs_truth = z_presence_metrics(pruned, truth)
 
             stage_scores["raw"][name].append(d_raw)
             stage_scores["postprocessed"][name].append(d_pp)
             row.update({
                 f"dice_{name}_raw": round(d_raw, 6),
                 f"dice_{name}_postprocessed": round(d_pp, 6),
+                f"hd95_{name}_mm": round(hd95, 6) if np.isfinite(hd95) else float("nan"),
+                f"nsd2mm_{name}": round(nsd2, 6) if np.isfinite(nsd2) else float("nan"),
+                f"z_presence_dice_{name}": round(z_dice, 6),
+                f"z_runs_pred_{name}": z_runs_pred,
+                f"z_runs_truth_{name}": z_runs_truth,
+                f"z_fragment_error_{name}": abs(z_runs_pred - z_runs_truth),
                 f"components_{name}_before": count_components(raw),
                 f"components_{name}_removed": removed,
                 f"truth_voxels_{name}": int(truth.sum()),
