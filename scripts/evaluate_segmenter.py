@@ -262,14 +262,19 @@ def main(argv=None) -> int:
     logger.info("TTA: %s | min component voxels: %d | keep largest: %d",
                 args.tta, args.min_component_voxels, args.keep_largest)
 
+    hu_window_cfg = cfg.get("hu_window", [-135.0, 215.0])
     geom = GeometryConfig(
         spacing_z=float(cfg.get("target_spacing_z", 2.5)),
         spacing_xy=float(cfg.get("target_spacing_xy", 1.0)),
         image_size=int(cfg.get("image_size", 384)),
         z_margin=int(cfg.get("z_margin", 32)),
+        hu_window=(float(hu_window_cfg[0]), float(hu_window_cfg[1])),
+        clahe=bool(cfg.get("clahe", False)),
         right_label=int(cfg.get("right_label", 11)),
         left_label=int(cfg.get("left_label", 12)),
     )
+    logger.info("Preprocessing from checkpoint: HU %s | CLAHE %s",
+                tuple(geom.hu_window), geom.clahe)
 
     modality = args.modality or str(cfg.get("modality", "all"))
     disc = SimpleNamespace(
@@ -285,13 +290,35 @@ def main(argv=None) -> int:
     val_cases = load_or_build_cache(val_records, geom, cache_dir, False, logger)
     logger.info("Evaluating %d validation cases", len(val_cases))
 
-    model = smp.Unet(
-        encoder_name=str(cfg.get("encoder", "resnet34")), encoder_weights=None,
-        in_channels=slice_window, classes=n_ch,
-        decoder_attention_type=None if cfg.get("decoder_attention") == "none" else "scse",
-    )
+    model_variant = str(cfg.get("model_variant", "baseline"))
+    attention = None if cfg.get("decoder_attention") == "none" else "scse"
+    if model_variant == "baseline":
+        model = smp.Unet(
+            encoder_name=str(cfg.get("encoder", "resnet34")), encoder_weights=None,
+            in_channels=slice_window, classes=n_ch,
+            decoder_attention_type=attention,
+        )
+    else:
+        from src.models.delta_snn_refiner import build_refined_segmenter
+        model = build_refined_segmenter(
+            variant=model_variant,
+            encoder=str(cfg.get("encoder", "resnet34")),
+            encoder_weights=None,
+            in_channels=slice_window,
+            num_classes=n_ch,
+            decoder_attention=attention,
+            event_threshold=float(cfg.get("event_threshold", 0.05)),
+            learn_event_threshold=bool(cfg.get("learn_event_threshold", False)),
+            beta=float(cfg.get("snn_beta", 0.9)),
+            lif_threshold=float(cfg.get("snn_threshold", 1.0)),
+            learn_beta=not bool(cfg.get("fixed_neuron_params", False)),
+            learn_lif_threshold=not bool(cfg.get("fixed_neuron_params", False)),
+            surrogate_slope=float(cfg.get("surrogate_slope", 10.0)),
+            readout=str(cfg.get("snn_readout", "membrane")),
+        )
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device).eval()
+    logger.info("Reconstructed model variant: %s", model_variant)
 
     def rotate(x, degrees):
         rad = math.radians(degrees)
@@ -301,10 +328,20 @@ def main(argv=None) -> int:
         grid = F.affine_grid(theta, x.shape, align_corners=False)
         return F.grid_sample(x, grid, mode="bilinear", padding_mode="border", align_corners=False)
 
+    activity_rows = []
+
     @torch.no_grad()
     def predict(batch):
         """batch: (B, slice_window, H, W) -> fused probabilities (B, n_ch, H, W)."""
         acc = torch.sigmoid(model(batch))
+        if model_variant != "baseline" and getattr(model, "last_stats", None) is not None:
+            stats = model.last_stats
+            activity_rows.append({
+                "batch_size": int(batch.shape[0]),
+                "event_density": float(stats.event_density.cpu()),
+                "event_magnitude": float(stats.event_magnitude.cpu()),
+                "spike_rate": float(stats.spike_rate.cpu()),
+            })
         n = 1
         if args.tta in ("rot", "all"):
             for deg in (-16, -8, 8, 16):
@@ -403,6 +440,26 @@ def main(argv=None) -> int:
         channel_names=channel_names, stage_scores=stage_scores, rows=rows,
         mri_threshold=int(cfg.get("mri_id_threshold", 500)),
     )
+
+    if activity_rows:
+        total_weight = sum(r["batch_size"] for r in activity_rows)
+        def weighted_mean(key):
+            return sum(r[key] * r["batch_size"] for r in activity_rows) / max(total_weight, 1)
+        activity_path = out_dir / "temporal_activity.csv"
+        with activity_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(
+                fh,
+                fieldnames=["batch_size", "event_density", "event_magnitude", "spike_rate"],
+            )
+            writer.writeheader()
+            writer.writerows(activity_rows)
+        logger.info(
+            "Temporal activity: event density %.4f | event magnitude %.4f | spike rate %.4f",
+            weighted_mean("event_density"),
+            weighted_mean("event_magnitude"),
+            weighted_mean("spike_rate"),
+        )
+        logger.info("Temporal activity CSV: %s", activity_path)
 
     logger.info("-" * 78)
     logger.info("Per-case scores: %s", csv_path)
