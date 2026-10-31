@@ -104,6 +104,12 @@ def build_parser() -> argparse.ArgumentParser:
     data.add_argument("--max-val-cases", type=int, default=0, help="0 = use all")
     data.add_argument("--val-fraction", type=float, default=0.2,
                       help="Only used when the dataset has no imagesVa/ split")
+    data.add_argument(
+        "--split-seed", type=int, default=None,
+        help="patient-level holdout seed when AMOS has no imagesVa split. "
+             "Defaults to --seed for backward compatibility; set it explicitly "
+             "when varying training seeds so the patient split stays fixed.",
+    )
     data.add_argument("--right-label", type=int, default=11, help="AMOS22 right adrenal gland label id")
     data.add_argument("--left-label", type=int, default=12, help="AMOS22 left adrenal gland label id")
     data.add_argument("--rebuild-cache", action="store_true")
@@ -156,6 +162,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--base-checkpoint", type=Path, default=None,
         help="baseline Stage-B best_model.pt to initialise refined variants. "
              "Strongly recommended for controlled refiner experiments.",
+    )
+    model.add_argument(
+        "--no-inherit-base-config", dest="inherit_base_config", action="store_false",
+        default=True,
+        help="do not inherit data/preprocessing/model protocol settings from "
+             "--base-checkpoint. Use only for an explicit ablation.",
     )
     model.add_argument(
         "--freeze-base", action="store_true",
@@ -442,7 +454,8 @@ def discover_cases(args, logger) -> tuple[list[dict], list[dict]]:
 
     if not val:
         # No official validation split present - hold out whole patients.
-        rng = random.Random(args.seed)
+        split_seed = args.seed if args.split_seed is None else args.split_seed
+        rng = random.Random(split_seed)
         shuffled = list(train)
         rng.shuffle(shuffled)
         n_val = max(1, int(round(len(shuffled) * args.val_fraction)))
@@ -930,6 +943,55 @@ def main(argv=None) -> int:
     if device.type == "cuda":
         logger.info("GPU: %s", torch.cuda.get_device_name(0))
 
+    base_checkpoint_payload = None
+    if args.base_checkpoint is not None:
+        if not args.base_checkpoint.is_file():
+            raise SystemExit(f"baseline checkpoint not found: {args.base_checkpoint}")
+        base_checkpoint_payload = torch.load(
+            args.base_checkpoint, map_location="cpu", weights_only=False
+        )
+        base_cfg = base_checkpoint_payload.get("config", {})
+        if str(base_cfg.get("model_variant", "baseline")) != "baseline":
+            raise SystemExit(
+                "--base-checkpoint must be an unwrapped baseline Stage-B checkpoint, "
+                f"got model_variant={base_cfg.get('model_variant')!r}"
+            )
+
+        if args.inherit_base_config:
+            # These fields define the data seen by the baseline and the exact
+            # segmentation protocol. Keeping them fixed makes the refiner a
+            # genuine residual-ablation rather than a new training recipe.
+            inherit_fields = (
+                "val_fraction", "modality", "mri_id_threshold", "combine_glands",
+                "target_spacing_z", "target_spacing_xy", "image_size",
+                "slice_window", "z_margin", "right_label", "left_label",
+                "hu_window", "clahe", "negative_ratio", "max_positive_per_case",
+                "encoder", "decoder_attention", "loss", "batch_dice",
+                "augment", "augment_level",
+            )
+            inherited = []
+            for key in inherit_fields:
+                if key in base_cfg:
+                    setattr(args, key, base_cfg[key])
+                    inherited.append(key)
+
+            # Old checkpoints predate --split-seed. Their training seed was
+            # also the split seed, so use it only for patient partitioning;
+            # --seed remains free to vary initialisation/sampling/augmentation.
+            base_split_seed = base_cfg.get("split_seed")
+            if base_split_seed is None:
+                base_split_seed = base_cfg.get("seed", 42)
+            args.split_seed = int(base_split_seed)
+            logger.info(
+                "Inherited baseline protocol from %s (%d fields); fixed split seed=%d",
+                args.base_checkpoint, len(inherited), args.split_seed,
+            )
+        elif args.split_seed is None:
+            logger.warning(
+                "--no-inherit-base-config was used without --split-seed. "
+                "The holdout may differ from the baseline checkpoint."
+            )
+
     (run_dir / "config.json").write_text(
         json.dumps({k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()}, indent=2),
         encoding="utf-8",
@@ -1032,16 +1094,9 @@ def main(argv=None) -> int:
             )
 
             if args.base_checkpoint is not None:
-                if not args.base_checkpoint.is_file():
-                    raise SystemExit(f"baseline checkpoint not found: {args.base_checkpoint}")
-                base_ckpt = torch.load(args.base_checkpoint, map_location="cpu", weights_only=False)
-                base_cfg = base_ckpt.get("config", {})
-                if str(base_cfg.get("model_variant", "baseline")) != "baseline":
-                    raise SystemExit(
-                        "--base-checkpoint must be an unwrapped baseline Stage-B checkpoint, "
-                        f"got model_variant={base_cfg.get('model_variant')!r}"
-                    )
-                model.load_base_state_dict(base_ckpt["model_state_dict"], strict=True)
+                model.load_base_state_dict(
+                    base_checkpoint_payload["model_state_dict"], strict=True
+                )
                 logger.info("Loaded shared baseline weights from %s", args.base_checkpoint)
 
             if args.freeze_base:
