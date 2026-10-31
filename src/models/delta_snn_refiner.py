@@ -90,7 +90,11 @@ class InterSliceEventEncoder(nn.Module):
                 raise ValueError("delta encoding needs at least two slices")
             signal = x[:, 1:] - x[:, :-1]
         else:
-            signal = x
+            if x.shape[1] < 2:
+                raise ValueError("raw temporal control needs at least two slices")
+            # Use T-1 steps just like delta mode so the control differs only in
+            # representation, not in temporal depth or recurrent compute.
+            signal = x[:, 1:]
 
         tau = self.threshold.to(dtype=x.dtype, device=x.device)
         pos = F.relu(signal - tau)
