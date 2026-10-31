@@ -145,6 +145,43 @@ def build_parser() -> argparse.ArgumentParser:
                             "pipeline used the Jaccard index as its loss; IoU = Dice/(2-Dice), "
                             "so IoU penalises false positives more sharply, which is not "
                             "obviously irrelevant for a structure at ~0.3%% of pixels.")
+    model.add_argument(
+        "--model-variant",
+        choices=["baseline", "delta_snn", "raw_snn", "delta_analog"],
+        default="baseline",
+        help="baseline U-Net, proposed delta-event SNN refiner, raw-slice SNN "
+             "control, or delta-event analog leaky control.",
+    )
+    model.add_argument(
+        "--base-checkpoint", type=Path, default=None,
+        help="baseline Stage-B best_model.pt to initialise refined variants. "
+             "Strongly recommended for controlled refiner experiments.",
+    )
+    model.add_argument(
+        "--freeze-base", action="store_true",
+        help="freeze the loaded baseline U-Net and train only the temporal refiner. "
+             "Requires --base-checkpoint and a non-baseline variant.",
+    )
+    model.add_argument(
+        "--event-threshold", type=float, default=0.05,
+        help="minimum absolute inter-slice change retained by the event encoder.",
+    )
+    model.add_argument(
+        "--learn-event-threshold", action="store_true",
+        help="learn the event threshold by backpropagation.",
+    )
+    model.add_argument("--snn-beta", type=float, default=0.9)
+    model.add_argument("--snn-threshold", type=float, default=1.0)
+    model.add_argument(
+        "--snn-readout", choices=["membrane", "rate"], default="membrane",
+        help="dense temporal readout. membrane retains sub-threshold evidence; "
+             "rate is a stricter spike-count control.",
+    )
+    model.add_argument("--surrogate-slope", type=float, default=10.0)
+    model.add_argument(
+        "--fixed-neuron-params", action="store_true",
+        help="keep LIF beta/threshold fixed instead of learning them.",
+    )
 
     preproc = p.add_argument_group("preprocessing (changes the cache key - rebuilds the cache)")
     preproc.add_argument("--hu-window", type=float, nargs=2, metavar=("LO", "HI"),
@@ -953,34 +990,98 @@ def main(argv=None) -> int:
 
     # -- model --------------------------------------------------------------
     weights = None if args.encoder_weights.lower() in ("none", "") else args.encoder_weights
+    attention = None if args.decoder_attention == "none" else args.decoder_attention
+
+    if args.freeze_base and args.model_variant == "baseline":
+        raise SystemExit("--freeze-base is only valid for a refined model variant")
+    if args.freeze_base and args.base_checkpoint is None:
+        raise SystemExit("--freeze-base requires --base-checkpoint so every refiner starts from the same U-Net")
+    if args.model_variant == "baseline" and args.base_checkpoint is not None:
+        raise SystemExit("--base-checkpoint is for refined variants; use --resume for a baseline run")
+
+    # When a complete baseline checkpoint is supplied, there is no reason to
+    # download ImageNet weights just to overwrite them immediately.
+    init_weights = None if args.base_checkpoint is not None else weights
+
     try:
-        model = smp.Unet(
-            encoder_name=args.encoder,
-            encoder_weights=weights,
-            in_channels=args.slice_window,
-            classes=n_ch,
-            decoder_attention_type=None if args.decoder_attention == "none" else args.decoder_attention,
-        ).to(device)
+        if args.model_variant == "baseline":
+            model = smp.Unet(
+                encoder_name=args.encoder,
+                encoder_weights=init_weights,
+                in_channels=args.slice_window,
+                classes=n_ch,
+                decoder_attention_type=attention,
+            )
+        else:
+            from src.models.delta_snn_refiner import build_refined_segmenter
+            model = build_refined_segmenter(
+                variant=args.model_variant,
+                encoder=args.encoder,
+                encoder_weights=init_weights,
+                in_channels=args.slice_window,
+                num_classes=n_ch,
+                decoder_attention=attention,
+                event_threshold=args.event_threshold,
+                learn_event_threshold=args.learn_event_threshold,
+                beta=args.snn_beta,
+                lif_threshold=args.snn_threshold,
+                learn_beta=not args.fixed_neuron_params,
+                learn_lif_threshold=not args.fixed_neuron_params,
+                surrogate_slope=args.surrogate_slope,
+                readout=args.snn_readout,
+            )
+
+            if args.base_checkpoint is not None:
+                if not args.base_checkpoint.is_file():
+                    raise SystemExit(f"baseline checkpoint not found: {args.base_checkpoint}")
+                base_ckpt = torch.load(args.base_checkpoint, map_location="cpu", weights_only=False)
+                base_cfg = base_ckpt.get("config", {})
+                if str(base_cfg.get("model_variant", "baseline")) != "baseline":
+                    raise SystemExit(
+                        "--base-checkpoint must be an unwrapped baseline Stage-B checkpoint, "
+                        f"got model_variant={base_cfg.get('model_variant')!r}"
+                    )
+                model.load_base_state_dict(base_ckpt["model_state_dict"], strict=True)
+                logger.info("Loaded shared baseline weights from %s", args.base_checkpoint)
+
+            if args.freeze_base:
+                model.freeze_base()
+                logger.info("Base U-Net frozen: only the temporal residual refiner will train.")
+
+        model = model.to(device)
     except Exception as exc:
-        if weights is None:
+        if init_weights is None:
             raise
-        logger.error("Could not obtain '%s' weights for encoder '%s': %s", weights, args.encoder, exc)
+        logger.error("Could not obtain '%s' weights for encoder '%s': %s", init_weights, args.encoder, exc)
         raise SystemExit(
             "\nPretrained encoder weights could not be downloaded. This machine is probably "
             "offline or behind a proxy.\n"
             "Options, best first:\n"
-            "  1. Give the machine network access and rerun - pretrained weights matter a lot here.\n"
-            "  2. Pre-download the weights somewhere with access, copy the torch cache over, and set\n"
-            "     TORCH_HOME=/path/to/cache (weights land in $TORCH_HOME/hub/checkpoints).\n"
-            "  3. --encoder-weights none  (trains from scratch; expect far worse results on a\n"
-            "     structure this small unless you have a lot of data and epochs).\n"
+            "  1. Give the machine network access and rerun.\n"
+            "  2. Pre-download the weights and set TORCH_HOME to that cache.\n"
+            "  3. Supply --base-checkpoint for refined variants.\n"
+            "  4. --encoder-weights none (from scratch; weaker control).\n"
         ) from exc
-    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    logger.info("Model: U-Net/%s (weights=%s, attention=%s) - %.1fM trainable parameters",
-                args.encoder, weights, args.decoder_attention, n_params / 1e6)
-    if weights is None:
-        logger.warning("Training the encoder from scratch. On a structure this small that usually "
-                       "needs far more data and epochs; --encoder-weights imagenet is strongly advised.")
+
+    n_total_params = sum(p.numel() for p in model.parameters())
+    n_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info(
+        "Model: %s / U-Net-%s (weights=%s, attention=%s) - %.2fM total, %.2fM trainable",
+        args.model_variant, args.encoder, init_weights, args.decoder_attention,
+        n_total_params / 1e6, n_trainable_params / 1e6,
+    )
+    if args.model_variant != "baseline":
+        logger.info(
+            "Temporal refiner: event_threshold=%.4f learn_event_threshold=%s "
+            "beta=%.3f lif_threshold=%.3f readout=%s learn_neuron_params=%s",
+            args.event_threshold, args.learn_event_threshold, args.snn_beta,
+            args.snn_threshold, args.snn_readout, not args.fixed_neuron_params,
+        )
+    if weights is None and args.base_checkpoint is None:
+        logger.warning(
+            "Training the encoder from scratch. For a small organ this is a much weaker "
+            "starting point than the ImageNet or shared-checkpoint controls."
+        )
 
     if args.loss == "iou_focal":
         from src.models.losses import IoUFocalLoss
@@ -989,7 +1090,10 @@ def main(argv=None) -> int:
         criterion = DiceFocalLoss(batch_dice=args.batch_dice)
     logger.info("Loss %s | HU window %s | CLAHE %s | encoder weights %s",
                 args.loss, tuple(args.hu_window), args.clahe, args.encoder_weights)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    trainable_parameters = [p for p in model.parameters() if p.requires_grad]
+    if not trainable_parameters:
+        raise SystemExit("model has no trainable parameters")
+    optimizer = torch.optim.AdamW(trainable_parameters, lr=args.lr, weight_decay=args.weight_decay)
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
     start_epoch = 1
