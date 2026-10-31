@@ -340,7 +340,7 @@ def main(argv=None) -> int:
 
     modality = args.modality or str(cfg.get("modality", "all"))
     disc = SimpleNamespace(
-        data_root=args.data_root, seed=int(cfg.get("seed", 42)),
+        data_root=args.data_root, seed=int(cfg.get("split_seed") if cfg.get("split_seed") is not None else cfg.get("seed", 42)),
         val_fraction=float(cfg.get("val_fraction", 0.2)),
         max_train_cases=0, max_val_cases=args.max_val_cases,
         modality=modality, mri_id_threshold=int(cfg.get("mri_id_threshold", 500)),
