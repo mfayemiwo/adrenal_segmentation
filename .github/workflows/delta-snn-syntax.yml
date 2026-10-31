@@ -1,0 +1,21 @@
+name: Delta-SNN syntax check
+
+on:
+  push:
+    branches:
+      - research/delta-snn-refiner
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  python-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile modified Python files
+        run: |
+          python -m py_compile             src/models/delta_snn_refiner.py             scripts/train_adrenal_segmenter.py             scripts/evaluate_segmenter.py             scripts/compare_delta_snn_runs.py             tests/test_delta_snn_refiner.py
