@@ -153,7 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
                             "obviously irrelevant for a structure at ~0.3%% of pixels.")
     model.add_argument(
         "--model-variant",
-        choices=["baseline", "delta_snn", "raw_snn", "delta_analog"],
+        choices=["baseline", "delta_snn", "raw_snn", "delta_analog", "anatomy_snn", "anatomy_analog"],
         default="baseline",
         help="baseline U-Net, proposed delta-event SNN refiner, raw-slice SNN "
              "control, or delta-event analog leaky control.",
@@ -1076,7 +1076,9 @@ def main(argv=None) -> int:
             )
         else:
             from src.models.delta_snn_refiner import build_refined_segmenter
-            model = build_refined_segmenter(
+            from src.models.anatomy_spiking_memory import build_anatomy_memory_segmenter
+            builder = (build_anatomy_memory_segmenter if args.model_variant.startswith("anatomy_") else build_refined_segmenter)
+            model = builder(
                 variant=args.model_variant,
                 encoder=args.encoder,
                 encoder_weights=init_weights,
