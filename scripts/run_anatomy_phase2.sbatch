@@ -3,7 +3,7 @@
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=12
-#SBATCH --time=12:00:00
+#SBATCH --time=08:00:00
 #SBATCH --output=anatomy.%A_%a.out
 #SBATCH --error=anatomy.%A_%a.err
 #SBATCH --mem=96G
