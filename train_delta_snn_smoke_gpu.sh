@@ -3,7 +3,7 @@
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8
-#SBATCH --time=02:00:00
+#SBATCH --time=08:00:00
 #SBATCH --output=delta_smoke.%j.out
 #SBATCH --error=delta_smoke.%j.err
 #SBATCH --mem=48G
