@@ -362,7 +362,9 @@ def main(argv=None) -> int:
         )
     else:
         from src.models.delta_snn_refiner import build_refined_segmenter
-        model = build_refined_segmenter(
+        from src.models.anatomy_spiking_memory import build_anatomy_memory_segmenter
+        builder = (build_anatomy_memory_segmenter if model_variant.startswith("anatomy_") else build_refined_segmenter)
+        model = builder(
             variant=model_variant,
             encoder=str(cfg.get("encoder", "resnet34")),
             encoder_weights=None,
