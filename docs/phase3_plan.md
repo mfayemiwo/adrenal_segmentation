@@ -98,26 +98,53 @@ sbatch scripts/run_phase3_diagnostics.sbatch
 Uses existing `runs/phase2_anatomy_snn_s1` and analog checkpoints.
 Look at `runs/phase3_diagnostics/{anatomy_snn,anatomy_analog}/{none,zero_events,reverse_events,no_gate}`.
 
-### B. True 3D nnU-Net baseline
+### B. True 3D nnU-Net baseline: **single GPU allocation (recommended)**
 
-Install `nnunetv2` in an appropriate ROCm-compatible Python environment
-*without replacing your working torch 2.6+rocm6.3.3*. Verify
-`python -c 'import torch; print(torch.__version__, torch.version.hip)'`
-after installing. Then in order:
+This pipeline automatically runs preparation, preprocessing, 3D full-resolution
+nnU-Net fold training, heldout prediction, and per-gland Dice/HD95/NSD
+evaluation **in one SLURM allocation**, requesting **24 hours**. There is
+no reason to submit each stage separately. It skips finished stages on
+re-entry and resumes the training checkpoint if it exists.
+
+Before submitting, confirm that the cluster's queue permits 24h and that
+`nnunetv2` is installed inside `.venv`. Verify the cluster's permitted
+wall time using `sinfo -p k2-gpu-amd -o "%P %l"`. Some partitions cap jobs
+below 24 hours; if so, adjust the `#SBATCH --time` value to the actual limit.
 
 ```bash
-sbatch --export=ALL,NN_STAGE=prepare scripts/run_adrenaspike_nnunet.sbatch
-sbatch --export=ALL,NN_STAGE=preprocess scripts/run_adrenaspike_nnunet.sbatch
-sbatch --export=ALL,NN_STAGE=train,FOLD=0 scripts/run_adrenaspike_nnunet.sbatch
-# Only after train completes, predict on the reserved validation cohort
-sbatch --export=ALL,NN_STAGE=predict,FOLD=0 scripts/run_adrenaspike_nnunet.sbatch
-python scripts/evaluate_nnunet_adrenal.py
+git fetch origin
+git checkout research/adrenaspike3d
+git pull origin research/adrenaspike3d
+bash -n scripts/run_adrenaspike_nnunet_all.sbatch
+
+# One submission: all stages, in order
+sbatch scripts/run_adrenaspike_nnunet_all.sbatch
 ```
 
-If training hits the 8-hour wall-time, resume on the **same fold** using
-`sbatch --export=ALL,NN_STAGE=train,FOLD=0,RESUME=1 scripts/run_adrenaspike_nnunet.sbatch`.
-A single fold is a *pilot*, not a fully tuned ensemble or cross-validation study.
-nnU-Net commands: https://github.com/MIC-DKFZ/nnUNet
+If a job reaches its permitted wall time before the full training is
+finished, run the **same command** again. The launcher checks preparation,
+preprocessing, `checkpoint_latest` / `checkpoint_final`, and completed
+predictions. nnU-Net typically saves periodic checkpoints; any progress
+after the last checkpoint may be lost on time limit. A 24h request does not
+guarantee a completed 3D training run and does not change nnU-Net's original
+training schedule.
+
+A successful fold-0 run generates:
+
+- `runs/nnunet3d_holdout_metrics_fold0.csv`
+- `runs/nnunet3d_holdout_predictions_fold0/`
+- `nnunet3d_all.<jobid>.out` and `.err`
+
+For later cross-validation folds, set `FOLD=1` (etc.). For a future
+out-of-fold teacher ensemble, save predicted probabilities with
+`SAVE_PROBABILITIES=1`; this consumes more disk storage.
+
+These are true-full-z nnU-Net baseline metrics. The older Stage B scores
+use a ground-truth-derived z crop and must not be compared as if evaluated
+under the same full-scan input condition. The imagesVa/labelsVa cohort is
+exploratory development validation, not a genuinely independent external
+test set. Do not use it to repeatedly tune the model and call it a final
+unbiased test.
 
 ### C. AdrenaSpike-3D ROI pilot (2 matched models)
 
