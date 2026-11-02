@@ -94,9 +94,14 @@ def main():
     model = smp.Unet(
         encoder_name=str(cfg.get("encoder", "resnet34")),
         encoder_weights=None, in_channels=k, classes=2,
-        decoder_attention_type=None if cfg.get("decoder_attention") == "none" else "scse"
+        decoder_attention_type=(None if cfg.get("decoder_attention", "none") in (None, "none") else cfg["decoder_attention"])
     ).cuda().eval()
     model.load_state_dict(checkpoint["model_state_dict"], strict=True)
+    if "threshold" not in checkpoint:
+        raise ValueError("Baseline checkpoint lacks 'threshold'; do not silently default to 0.5")
+    operating_threshold = float(checkpoint["threshold"])
+    if not np.isfinite(operating_threshold) or not 0 < operating_threshold < 1:
+        raise ValueError(f"Invalid baseline operating threshold: {operating_threshold}")
     a.out_dir.mkdir(parents=True, exist_ok=True)
     selected = ["train", "val"] if a.split == "both" else [a.split]
     for split in selected:
@@ -126,7 +131,9 @@ def main():
             print(f"{split} {n}/{len(image_paths)} {cid}: z={len(image)}", flush=True)
     (a.out_dir / "manifest.json").write_text(json.dumps({
         "baseline_checkpoint": str(a.checkpoint), "baseline_config": cfg,
-        "operating_threshold": float(checkpoint.get("best_threshold", 0.5)),
+        "operating_threshold": operating_threshold,
+        "provenance": "single_fitted_stage_b_model; in_sample_on_training_patients",
+        "out_of_fold_training_probabilities": False,
         "note": "Full resampled CT z-axis; no label-based z cropping; predictions generated from frozen Stage B."
     }, indent=2, default=str))
 
