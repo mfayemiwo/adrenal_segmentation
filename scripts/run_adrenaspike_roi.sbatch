@@ -31,6 +31,9 @@ if [[ "$SMOKE" == "1" ]];then
     OPTS+=(--smoke-test)
 fi
 if [[ "$STAGE" == "train" ]];then
+    if [[ "$SMOKE" == "1" || "${EXPLORATORY:-0}" == "1" ]];then
+        OPTS+=(--allow-in-sample-backbone)
+    fi
     python -u scripts/train_adrenaspike3d.py --variant "$VARIANT" \
         --seed "$SEED" --run-name "$RUN" "${OPTS[@]}"
 elif [[ "$STAGE" == "evaluate" ]];then
