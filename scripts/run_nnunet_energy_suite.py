@@ -21,7 +21,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from scripts.run_phase2_energy_suite import gpu_time_left_s
+from run_phase2_energy_suite import gpu_time_left_s
 
 
 def dataset_id_from_path(directory: Path) -> str:
