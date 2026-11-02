@@ -110,6 +110,12 @@ def get_power_watts(amdsmi, handle):
     return None
 
 
+def get_vram_bytes(sm, handle):
+    data = sm.amdsmi_get_gpu_vram_usage(handle)
+    used = numeric(data.get("vram_used"))
+    return int(used) if used is not None and used >= 0 else None
+
+
 def sample(sm, handle):
     now = time.perf_counter()
     try:
@@ -120,7 +126,12 @@ def sample(sm, handle):
         energy = get_energy_joules(sm, handle)
     except Exception:
         energy = None
-    return {"t_seconds": now, "power_w": power, "energy_j_counter": energy}
+    try:
+        vram = get_vram_bytes(sm, handle)
+    except Exception:
+        vram = None
+    return {"t_seconds": now, "power_w": power, "energy_j_counter": energy,
+            "vram_used_bytes": vram}
 
 
 def integrate_power(samples):
@@ -137,7 +148,7 @@ def integrate_power(samples):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--label", required=True, help="Unique simple filename label")
+    parser.add_argument("--label", default="probe", help="Unique simple filename label")
     parser.add_argument("--output-dir", type=Path, default=Path("runs/energy"))
     parser.add_argument("--gpu-index", type=int, default=None,
                         help="PHYSICAL AMD-SMI index (not necessarily torch cuda:0)")
@@ -177,7 +188,7 @@ def main():
             available = measured["power_w"] is not None or measured["energy_j_counter"] is not None
             report = {"telemetry_available": available, "physical_amdsmi_index": idx,
                       "mapping": mapping, "hip_gpu_0_bdf": hip_device_zero_bdf(),
-                      "smi_bdf": amdsmi.amdsmi_get_gpu_device_bdf(handle),
+                      "smi_bdf": str(amdsmi.amdsmi_get_gpu_device_bdf(handle)),
                       "sample": measured}
             (args.output_dir / "telemetry_probe.json").write_text(
                 json.dumps(report, indent=2) + "\n")
@@ -225,6 +236,8 @@ def main():
                   else "unavailable")
         watts = [x["power_w"] for x in readings if x["power_w"] is not None]
         mean_w = sum(watts) / len(watts) if watts else None
+        used = [p["vram_used_bytes"] for p in readings if p.get("vram_used_bytes") is not None]
+        peak_vram = max(used) if used else None
         net_estimate = (max(actual_j - idle_w * elapsed, 0.0)
                         if actual_j is not None and idle_w is not None else None)
         report = {
@@ -235,12 +248,14 @@ def main():
             "mean_sample_power_w": mean_w, "idle_mean_power_w": idle_w,
             "net_energy_after_idle_j_estimate": net_estimate,
             "sample_interval_s": args.interval, "sample_count": len(readings),
+            "peak_sampled_gpu_vram_bytes": peak_vram,
+            "peak_sampled_gpu_vram_gib": peak_vram / (1024 ** 3) if peak_vram is not None else None,
             "scope": "GPU socket telemetry over complete child process; includes idle component; CPU/node energy excluded.",
         }
         target = args.output_dir / args.label
         (target.with_suffix(".json")).write_text(json.dumps(report, indent=2) + "\n")
         with target.with_suffix(".csv").open("w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["t_seconds", "power_w", "energy_j_counter"])
+            writer = csv.DictWriter(f, fieldnames=["t_seconds", "power_w", "energy_j_counter", "vram_used_bytes"])
             writer.writeheader()
             writer.writerows(readings)
         print(json.dumps(report, indent=2), flush=True)
