@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Evaluate gland-specific ROI memory on true full-z cached CT volumes."""
-import argparse,csv,sys
+import argparse,csv,sys,math
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
 import numpy as np
@@ -50,7 +50,8 @@ def main():
                   zero_events=a.zero_events,use_gate=not a.no_gate)
         rate=float(model.last_spike_rate.cpu())
         density=float(model.last_event_density.cpu())
-        return out.sigmoid()[0,0].float().cpu().numpy(),rate,density
+        offset=math.log(threshold/(1-threshold))
+        return (out+offset).sigmoid()[0,0].float().cpu().numpy(),rate,density
     for i,file in enumerate(files,1):
         with np.load(file) as d:
             ct=d["ct"].astype(np.float32)
