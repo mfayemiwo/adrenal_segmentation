@@ -62,7 +62,7 @@ def main():
     if marker.is_file():
         import re
         import subprocess
-        fold_match = re.search(r"_fold(\\d+)$", a.output.stem)
+        fold_match = re.search(r"_fold(\d+)$", a.output.stem)
         if fold_match is None:
             print("Cannot infer trained fold from nnU-Net metrics output filename; "
                   "skipping optional energy experiment rather than benchmarking "
@@ -94,7 +94,7 @@ def main():
                         print(f"{title} finished with exit {result.returncode}; "
                               f"see {folder / 'hook.log'}", flush=True)
                     except Exception as exc:
-                        logfile.write(f"{title} launch failed: {type(exc).__name__}: {exc}\\n")
+                        logfile.write(f"{title} launch failed: {type(exc).__name__}: {exc}\n")
                         print(f"{title} failed to launch; original metrics remain intact.",
                               flush=True)
     else:
