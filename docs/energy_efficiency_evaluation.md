@@ -12,6 +12,56 @@ or an event-aware implementation is provided.
 Current position: do **not** claim that Phase 1, Phase 2, or AdrenaSpike-3D
 is more energy efficient based on spike density alone.
 
+## Already-submitted nnU-Net job: energy measurements without requeueing
+
+**Do not cancel or re-submit the pending 72-hour job.** SLURM
+snapshots the batch script at submission, but the script calls the Python
+evaluation module from the filesystem when it reaches that stage.
+
+An **explicit opt-in marker** now enables optional matched Phase 2
+SNN-versus-analog energy trials *after* the full-volume nnU-Net evaluation
+has written its metrics CSV.
+
+Run these commands on the cluster's login node, **from the exact project
+directory used in the original sbatch submission**, before that stage starts:
+
+```bash
+git checkout research/adrenaspike3d
+git pull origin research/adrenaspike3d
+mkdir -p runs
+touch runs/enable_energy_after_nnunet
+python -m py_compile scripts/evaluate_nnunet_adrenal.py scripts/measure_gpu_energy.py scripts/run_phase2_energy_suite.py
+```
+
+No separate GPU job is needed to check AMD-SMI. The post-evaluation hook
+probes the hardware and verifies mapping to the allocated HIP GPU from
+inside the allocated GPU node. The suite measures three matched,
+interleaved SNN/analog Phase 2 evaluation repeats if both checkpoints and
+hardware telemetry are available. The check happens only **after** the
+3D baseline results have been saved; it does not delay baseline training.
+
+If telemetry/checkpoints are missing, if the queued job never reaches
+evaluation, or if insufficient time remains, the optional results may be
+skipped or partial. The baseline nnU-Net metrics remain valid and written.
+A 72-hour limit is not a guarantee that both studies will finish.
+
+Expected outputs:
+
+- `runs/nnunet3d_holdout_metrics_fold0.csv` (full-volume nnU-Net scores)
+- `runs/energy_phase2/hook.log` (measurement progress/error detail)
+- `runs/energy_phase2/telemetry_probe.json` (hardware availability/mapping)
+- `runs/energy_phase2/phase2_energy_trials.csv` (GPU J/patient, latency, quality)
+- `runs/energy_phase2/phase2_energy_paired.csv` (paired energy ratios)
+- `runs/energy_phase2/phase2_energy_summary.json` (experiment status)
+
+Phase 2 paired trials use the **historical ground-truth-dependent z crop**
+rather than unrestricted whole-abdomen scans. Energy is measured over the
+**entire evaluation subprocess**, including GPU idle power during CPU-side
+operations, and not restricted to model-forward energy. These data support
+a within-Phase-2 hardware comparison, but are **not** an energy head-to-head
+with whole-volume nnU-Net. We have not yet added a dedicated nnU-Net
+inference-energy benchmark to the pending job.
+
 ## Two complementary efficiency studies
 
 ### Study A: model-only (to implement once pilot checkpoints are ready)
