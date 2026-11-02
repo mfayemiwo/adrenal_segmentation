@@ -54,5 +54,34 @@ def main():
         writer.writeheader();writer.writerows(rows)
     print(f"mean Dice: {np.mean([(r['dice_left']+r['dice_right'])/2 for r in rows]):.5f} over {len(rows)} heldout patients")
 
+    # Optional energy experiment injected by an explicit marker file.
+    # This permits attaching a non-critical energy study to an ALREADY QUEUED
+    # SLURM job (the batch script itself is snapshotted at sbatch submission).
+    # Baseline nnU-Net metrics are already written before this hook executes.
+    marker=Path("runs/enable_energy_after_nnunet")
+    if marker.is_file():
+        import subprocess
+        print("Energy marker found: collecting matched Phase 2 SNN/analog GPU measurements "
+              "inside this SLURM allocation.", flush=True)
+        logdir=Path("runs/energy_phase2")
+        logdir.mkdir(parents=True,exist_ok=True)
+        cmd=[sys.executable,"-u","scripts/run_phase2_energy_suite.py",
+             "--output-dir",str(logdir), "--repeats","3",
+             "--min-remaining-minutes","180"]
+        with (logdir/"hook.log").open("a",encoding="utf-8") as logfile:
+            try:
+                result=subprocess.run(cmd,stdout=logfile,stderr=subprocess.STDOUT,
+                                      check=False)
+                print(f"Energy follow-up finished with status {result.returncode}; "
+                      f"see {logdir}/hook.log",flush=True)
+            except Exception as exc:
+                logfile.write(f"Energy suite launch failed: {type(exc).__name__}: {exc}\n")
+                print("Optional energy suite failed to start; baseline metrics "
+                      "were saved successfully.",flush=True)
+    else:
+        print("Optional Phase 2 energy benchmark not enabled; "
+              "create runs/enable_energy_after_nnunet before this stage to opt in.",
+              flush=True)
+
 
 if __name__=="__main__":main()
