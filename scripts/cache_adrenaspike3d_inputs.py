@@ -36,7 +36,7 @@ def load_case(im, lb, config):
         raise ValueError(f"Image/label mismatch: {im}")
     image = np.asarray(v.dataobj, dtype=np.float32).transpose(2, 0, 1)
     lab = np.asarray(t.dataobj, dtype=np.int16).transpose(2, 0, 1)
-    zz, xx, yy = v.header.get_zooms()[:3][::-1]
+    xx, yy, zz = v.header.get_zooms()[:3]
     target_z = float(config.get("target_spacing_z", 2.5))
     target_xy = float(config.get("target_spacing_xy", 1.0))
     factors = (zz / target_z, xx / target_xy, yy / target_xy)
@@ -126,6 +126,7 @@ def main():
             print(f"{split} {n}/{len(image_paths)} {cid}: z={len(image)}", flush=True)
     (a.out_dir / "manifest.json").write_text(json.dumps({
         "baseline_checkpoint": str(a.checkpoint), "baseline_config": cfg,
+        "operating_threshold": float(checkpoint.get("best_threshold", 0.5)),
         "note": "Full resampled CT z-axis; no label-based z cropping; predictions generated from frozen Stage B."
     }, indent=2, default=str))
 
