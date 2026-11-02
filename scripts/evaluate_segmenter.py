@@ -94,6 +94,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "the score, which is exactly what made run4 read 0.71 instead of 0.75.")
     p.add_argument("--diagnostic-mode", choices=["none", "zero_events", "reverse_events", "no_gate", "baseline"], default="none", help="evaluation-only anatomy model mechanism ablation")
     p.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
+    p.add_argument("--profile-inference", action="store_true",
+                   help="Record synchronized GPU model-forward timing and peak allocated VRAM.")
     return p
 
 
@@ -431,6 +433,12 @@ def main(argv=None) -> int:
         return acc / n
 
     half = slice_window // 2
+    if args.profile_inference and device.type != "cuda":
+        raise SystemExit("--profile-inference requires a HIP/CUDA GPU")
+    forward_times_ms = []
+    if args.profile_inference:
+        torch.cuda.synchronize(device)
+        torch.cuda.reset_peak_memory_stats(device)
     rows = []
     stage_scores = {stage: {c: [] for c in channel_names} for stage in ("raw", "postprocessed")}
 
@@ -446,7 +454,16 @@ def main(argv=None) -> int:
                 image[np.clip(np.arange(c - half, c + half + 1), 0, n_slices - 1)] for c in centres
             ])
             batch = torch.from_numpy(windows).to(device)
-            probs[start:start + len(windows)] = predict(batch).float().cpu().numpy()
+            if args.profile_inference:
+                import time
+                torch.cuda.synchronize(device)
+                tick = time.perf_counter()
+                probabilities = predict(batch)
+                torch.cuda.synchronize(device)
+                forward_times_ms.append(1000.0 * (time.perf_counter() - tick))
+            else:
+                probabilities = predict(batch)
+            probs[start:start + len(windows)] = probabilities.float().cpu().numpy()
 
         truths = ([(coded > 0)] if combine
                   else [coded == LEFT_CHANNEL_VALUE, coded == RIGHT_CHANNEL_VALUE])
@@ -539,6 +556,30 @@ def main(argv=None) -> int:
             weighted_mean("spike_rate"),
         )
         logger.info("Temporal activity CSV: %s", activity_path)
+
+    if args.profile_inference and forward_times_ms:
+        import json
+        total_slices = sum(int(r["n_slices"]) for r in rows)
+        total_forward_s = sum(forward_times_ms) / 1000.0
+        profile = {
+            "profile_scope": "Synchronized model-forward calls; excludes host input transfer, CPU postprocessing, and data preprocessing.",
+            "model_variant": model_variant,
+            "cases": len(rows), "slices": total_slices,
+            "forward_batches": len(forward_times_ms),
+            "gpu_forward_total_s": total_forward_s,
+            "gpu_forward_s_per_case": total_forward_s / max(len(rows), 1),
+            "gpu_forward_ms_per_slice": 1000.0 * total_forward_s / max(total_slices, 1),
+            "gpu_forward_batches_per_second": len(forward_times_ms) / total_forward_s,
+            "forward_batch_ms_p50": float(np.percentile(forward_times_ms, 50)),
+            "forward_batch_ms_p95": float(np.percentile(forward_times_ms, 95)),
+            "peak_vram_allocated_bytes": int(torch.cuda.max_memory_allocated(device)),
+            "peak_vram_allocated_gib": float(torch.cuda.max_memory_allocated(device) / (1024 ** 3)),
+            "batch_size": args.batch_size,
+            "tta": args.tta,
+        }
+        path = out_dir / "inference_profile.json"
+        path.write_text(json.dumps(profile, indent=2) + "\n")
+        logger.info("Synchronized model-forward timing and peak VRAM: %s", path)
 
     logger.info("-" * 78)
     logger.info("Per-case scores: %s", csv_path)
