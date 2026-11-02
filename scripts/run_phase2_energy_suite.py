@@ -68,6 +68,19 @@ def record_for_trial(method, repeat, energy, per_case):
     def average(key):
         values = [float(r[key]) for r in rows if r.get(key) not in (None, "")]
         return statistics.mean(values) if values else None
+    profile_path = per_case.parent / "inference_profile.json"
+    profile = json.loads(profile_path.read_text()) if profile_path.exists() else {}
+    activity_path = per_case.parent / "temporal_activity.csv"
+    if activity_path.exists():
+        with activity_path.open(newline="") as fh:
+            activity = list(csv.DictReader(fh))
+        weight = sum(int(row["batch_size"]) for row in activity)
+        spike_rate = (sum(float(row["spike_rate"]) * int(row["batch_size"])
+                          for row in activity) / weight) if weight else None
+        event_density = (sum(float(row["event_density"]) * int(row["batch_size"])
+                             for row in activity) / weight) if weight else None
+    else:
+        spike_rate, event_density = None, None
     return {
         "method": method, "repeat": repeat, "patients": n,
         "energy_j": float(j), "gpu_energy_j_per_patient": float(j) / n,
@@ -78,6 +91,12 @@ def record_for_trial(method, repeat, energy, per_case):
         "mean_hd95_right_mm": average("hd95_right_mm"),
         "mean_nsd_left": average("nsd2mm_left"),
         "mean_nsd_right": average("nsd2mm_right"),
+        "model_gpu_forward_s_per_patient": profile.get("gpu_forward_s_per_case"),
+        "model_forward_batch_p50_ms": profile.get("forward_batch_ms_p50"),
+        "model_forward_batch_p95_ms": profile.get("forward_batch_ms_p95"),
+        "peak_vram_allocated_gib": profile.get("peak_vram_allocated_gib"),
+        "spike_rate": spike_rate,
+        "event_density": event_density,
         "energy_source": energy.get("energy_source"),
         "gpu_mapping": energy.get("gpu_mapping"),
         "gpu_index": energy.get("device_smi_index"),
@@ -194,6 +213,7 @@ def main():
                      "--keep-largest", "2",
                      "--min-component-voxels", "30",
                      "--modality", "ct",
+                     "--profile-inference",
                      "--device", "cuda"]
                 if a.max_val_cases:
                     cmd += ["--max-val-cases", str(a.max_val_cases)]
