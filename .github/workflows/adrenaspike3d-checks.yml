@@ -26,3 +26,5 @@ jobs:
             scripts/evaluate_segmenter.py \
             src/models/anatomy_spiking_memory.py \
             tests/test_adrenaspike3d.py
+      - name: Validate 24-hour single-allocation launcher shell syntax
+        run: bash -n scripts/run_adrenaspike_nnunet_all.sbatch
