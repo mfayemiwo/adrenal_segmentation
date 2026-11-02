@@ -92,6 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="default: whatever the checkpoint was trained with. Evaluating a "
                         "CT-trained model on MRI cases mixes an unusable modality back into "
                         "the score, which is exactly what made run4 read 0.71 instead of 0.75.")
+    p.add_argument("--diagnostic-mode", choices=["none", "zero_events", "reverse_events", "no_gate", "baseline"], default="none", help="evaluation-only anatomy model mechanism ablation")
     p.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
     return p
 
@@ -382,6 +383,11 @@ def main(argv=None) -> int:
         )
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device).eval()
+    if args.diagnostic_mode != "none":
+        if not model_variant.startswith("anatomy_"):
+            raise SystemExit("--diagnostic-mode requires an anatomy_* checkpoint")
+        model.diagnostic_mode = args.diagnostic_mode
+        logger.info("DIAGNOSTIC ABLATION: %s", args.diagnostic_mode)
     logger.info("Reconstructed model variant: %s", model_variant)
 
     def rotate(x, degrees):
