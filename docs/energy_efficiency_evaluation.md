@@ -18,9 +18,13 @@ is more energy efficient based on spike density alone.
 snapshots the batch script at submission, but the script calls the Python
 evaluation module from the filesystem when it reaches that stage.
 
-An **explicit opt-in marker** now enables optional matched Phase 2
-SNN-versus-analog energy trials *after* the full-volume nnU-Net evaluation
-has written its metrics CSV.
+An **explicit opt-in marker** now enables **both** the full-volume 3D
+nnU-Net inference-energy benchmark and the matched Phase 2 SNN-versus-analog
+energy trials, *after* the original nnU-Net metrics CSV has been written.
+The nnU-Net inference trials run first. The script re-predicts all heldout
+full-volume CT cases 3 times in temporary folders and measures GPU-socket
+energy, elapsed time, average power and sampled VRAM. Temporary NIfTI
+predictions are removed and original nnU-Net prediction outputs are untouched.
 
 Run these commands on the cluster's login node, **from the exact project
 directory used in the original sbatch submission**, before that stage starts:
@@ -34,10 +38,10 @@ python -m py_compile scripts/evaluate_nnunet_adrenal.py scripts/measure_gpu_ener
 ```
 
 No separate GPU job is needed to check AMD-SMI. The post-evaluation hook
-probes the hardware and verifies mapping to the allocated HIP GPU from
-inside the allocated GPU node. The suite measures three matched,
-interleaved SNN/analog Phase 2 evaluation repeats if both checkpoints and
-hardware telemetry are available. The check happens only **after** the
+probes AMD-SMI and verifies the physical GPU mapping inside the allocated
+node, with no additional GPU submission. The nnU-Net suite attempts three
+full-volume prediction repeats first, then the Phase 2 suite attempts three
+interleaved SNN/analog repeats when both checkpoints are present. The check happens only **after** the
 3D baseline results have been saved; it does not delay baseline training.
 
 If telemetry/checkpoints are missing, if the queued job never reaches
@@ -48,7 +52,10 @@ A 72-hour limit is not a guarantee that both studies will finish.
 Expected outputs:
 
 - `runs/nnunet3d_holdout_metrics_fold0.csv` (full-volume nnU-Net scores)
-- `runs/energy_phase2/hook.log` (measurement progress/error detail)
+- `runs/energy_nnunet/hook.log` (full-volume prediction energy logs)
+- `runs/energy_nnunet/nnunet_energy_trials.csv` (full CT J/volume, time, peak VRAM and Dice)
+- `runs/energy_nnunet/nnunet_energy_summary.json` (aggregate values and status)
+- `runs/energy_phase2/hook.log` (SNN/analog energy progress/error detail)
 - `runs/energy_phase2/telemetry_probe.json` (hardware availability/mapping)
 - `runs/energy_phase2/phase2_energy_trials.csv` (GPU J/patient, latency, quality)
 - `runs/energy_phase2/phase2_energy_paired.csv` (paired energy ratios)
@@ -59,8 +66,14 @@ rather than unrestricted whole-abdomen scans. Energy is measured over the
 **entire evaluation subprocess**, including GPU idle power during CPU-side
 operations, and not restricted to model-forward energy. These data support
 a within-Phase-2 hardware comparison, but are **not** an energy head-to-head
-with whole-volume nnU-Net. We have not yet added a dedicated nnU-Net
-inference-energy benchmark to the pending job.
+with whole-volume nnU-Net. The nnU-Net measurement covers the full nnUNetv2_predict command,
+including I/O and resampling. It does **not** retroactively measure
+nnU-Net's training energy, nor isolate its GPU forward-only energy.
+The pending SLURM batch script's original prediction step is uninstrumented;
+the optional hook instead runs a second monitored inference workflow.
+Insufficient time remaining in the same allocation can still prevent these
+optional trials. If no verified telemetry is available, scripts record
+a skipped status rather than invent energy measurements.
 
 ## Two complementary efficiency studies
 
