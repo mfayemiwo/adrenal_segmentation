@@ -12,6 +12,46 @@ crop, *not the entire abdominal CT scan*. They remain useful for comparisons
 under the same protocol but must not be presented as unassisted full-scan
 performance. This branch creates true full-z inputs without mask-based crops.
 
+## Code audit and revised run decision (2 November 2026)
+
+**Proceed:** finish an already-running 3D nnU-Net job and collect its unrestricted
+scan metrics. Keep completed Phase 2 mechanism ablations.
+
+**Pause:** additional full AdrenaSpike-3D ROI training jobs until the
+underlying feature extractor is evaluated, ROI coverage is audited, and
+out-of-fold backbone predictions are available. The original SNN classification
+gate had only a very small PR-AUC difference from its static control and has
+not demonstrated safe full-scan gland recall. Do not introduce a hard
+classification gate into inference on that evidence.
+
+**Code corrections implemented:** (a) Stage B's best checkpoint saves its
+threshold under `threshold`, not `best_threshold`; the cache now reads
+the exact key and rejects absent values; (b) attention settings are
+reconstructed from the checkpoint configuration; (c) cached training-patient
+predictions are explicitly flagged as *in-sample*; (d) refiner training
+refuses to consume these predictions without the intentional
+`--allow-in-sample-backbone` exploratory switch; (e) evaluation has a
+`--no-correction` exact identity control.
+
+**Smoke tests:** `SMOKE=1` explicitly enables the exploratory override.
+For a full *exploratory* refiner experiment only, set `EXPLORATORY=1` in
+the `sbatch --export=ALL,...` line. Without that switch, training
+correctly stops. An exploratory run is not suitable for publication claims.
+
+**Proposed decision gate:** first examine original baseline on true full-z
+scans, 3D nnU-Net full-scan Dice/HD95/NSD, gland ROI GT coverage, and
+computational cost. Then train at most one seed of the SNN and analog
+using out-of-fold training inputs. If spike/event ablation, paired
+improvement, and boundary metrics do not support an advantage,
+stop using spiking as a primary segmentation contribution.
+
+**Potential classification role:** revisit Stage A only as a
+high-sensitivity *soft proposal/triage* mechanism, not a hard negative
+filter. Evaluate patient-level and per-gland recall, classification
+calibration, rare missed positives and end-to-end Dice compared with
+a matched CNN/ANN and a 3D baseline. A hard gate is unsafe for segmentation
+when a false-negative slice can entirely remove part of an adrenal gland.
+
 ## Three independently testable objectives
 
 1. **Mechanistic audit (Phase 2 checkpoints, no retraining):** same patient
@@ -92,7 +132,7 @@ sbatch --export=ALL,SMOKE=1,STAGE=train scripts/run_adrenaspike_roi.sbatch
 sbatch --export=ALL,STAGE=cache scripts/run_adrenaspike_inputs.sbatch
 sbatch --export=ALL,STAGE=tiles scripts/run_adrenaspike_inputs.sbatch
 # Train 2 models on patient-disjoint internal development sets:
-sbatch --export=ALL,STAGE=train,SEED=1 scripts/run_adrenaspike_roi.sbatch
+sbatch --export=ALL,STAGE=train,SEED=1,EXPLORATORY=1 scripts/run_adrenaspike_roi.sbatch
 # After training:
 sbatch --export=ALL,STAGE=evaluate,SEED=1 scripts/run_adrenaspike_roi.sbatch
 ```
