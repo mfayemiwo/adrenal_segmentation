@@ -29,6 +29,8 @@ def main():
     p.add_argument("--max-cases",type=int,default=0)
     p.add_argument("--zero-events",action="store_true")
     p.add_argument("--no-gate",action="store_true")
+    p.add_argument("--no-correction",action="store_true",
+        help="Strict baseline control: bypass ROI model and blending.")
     a=p.parse_args()
     if not torch.cuda.is_available():raise SystemExit("GPU required")
     ckpt=torch.load(a.checkpoint,map_location="cpu",weights_only=False)
@@ -64,8 +66,12 @@ def main():
             centre=locate(prob[gland])
             patch=crop(prob[gland],centre,shape)
             ctpatch=crop(ct,centre,shape)
-            refined,rate,density=refine(ctpatch,patch)
-            insert(output[gland],refined,centre,blend=True)
+            if a.no_correction:
+                rate,density=float("nan"),float("nan")
+                # Output remains an exact copy of the baseline probabilities.
+            else:
+                refined,rate,density=refine(ctpatch,patch)
+                insert(output[gland],refined,centre,blend=True)
             patch_gt=crop(gt.astype(np.uint8),centre,shape)
             row[f"roi_coverage_{name}"]=float(patch_gt.sum()/max(gt.sum(),1))
             row[f"spike_rate_{name}"]=rate
@@ -102,6 +108,10 @@ def main():
             vals=[np.nanmean([row[k] for k in keys]) for row in rows]
             summary.append(f"{label} {metric}: {np.nanmean(vals):.6f}")
     summary.append(f"ROI coverage mean: {np.mean([row[f'roi_coverage_{g}'] for row in rows for g in ('left','right')]):.4f}")
+    summary.append("Model checkpoint trained on out-of-fold backbone probabilities: "
+                   + str(bool(ckpt.get("out_of_fold_training_probabilities",False))))
+    summary.append("These AMOS validation cases are an exploratory development cohort, "
+                   "not a completely untouched external test.")
     (a.output_dir/"evaluation_report.txt").write_text("\n".join(summary)+"\n")
     print("\n".join(summary),flush=True)
 
