@@ -33,6 +33,7 @@ class AnatomyMemorySegmenter(DeltaSNNRefinedSegmenter):
             **kwargs,
         )
         self.variant = variant
+        self.diagnostic_mode = "none"  # evaluation-only mechanistic ablations
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.ndim != 4 or x.shape[1] != self.in_channels:
@@ -67,6 +68,14 @@ class AnatomyMemorySegmenter(DeltaSNNRefinedSegmenter):
             (F.relu(deltas - tau), F.relu(-deltas - tau)), dim=2
         )  # B,2,2,H,W
 
+        if self.diagnostic_mode == "zero_events":
+            events = torch.zeros_like(events)
+        elif self.diagnostic_mode == "reverse_events":
+            events = events.flip(dims=[1])
+        elif self.diagnostic_mode not in ("none", "baseline", "no_gate"):
+            raise ValueError(f"unknown diagnostic mode {self.diagnostic_mode}")
+        if self.diagnostic_mode == "baseline":
+            return centre_logits
         correction, spike_rate = self.refiner(events)
 
         # Selective correction where the centre mask is locally uncertain or
@@ -78,6 +87,8 @@ class AnatomyMemorySegmenter(DeltaSNNRefinedSegmenter):
             + (p - right_logits.sigmoid()).abs()
         ).mul(0.5).clamp(0, 1)
         gate = torch.maximum(uncertainty, mismatch)
+        if self.diagnostic_mode == "no_gate":
+            gate = torch.ones_like(gate)
         scale = self.residual_scale.tanh()
 
         self.last_stats = RefinerStats(
