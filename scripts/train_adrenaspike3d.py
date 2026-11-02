@@ -55,14 +55,30 @@ def main():
     ap.add_argument("--lr",type=float,default=1e-3)
     ap.add_argument("--event-threshold",type=float,default=0.002)
     ap.add_argument("--smoke-test",action="store_true")
+    ap.add_argument("--allow-in-sample-backbone",action="store_true",
+        help="Explicitly acknowledge single-fitted Stage B probabilities; exploratory feasibility only.")
     a=ap.parse_args()
     if not torch.cuda.is_available():raise SystemExit("MI300X GPU needed via sbatch")
     random.seed(a.seed);np.random.seed(a.seed);torch.manual_seed(a.seed)
     if a.smoke_test:
         a.max_train_tiles=a.max_val_tiles=4;a.max_epochs=2
-    threshold=float(json.loads((a.volume_dir/"manifest.json").read_text())["operating_threshold"])
+    manifest=json.loads((a.volume_dir/"manifest.json").read_text())
+    if not manifest.get("out_of_fold_training_probabilities", False):
+        if not a.allow_in_sample_backbone:
+            raise SystemExit(
+                "REFINER TRAINING STOPPED: baseline probabilities on training patients "
+                "are in-sample. Supply out-of-fold predictions, or specify "
+                "--allow-in-sample-backbone for EXPLORATORY research only."
+            )
+        print("WARNING: exploratory pilot uses in-sample backbone predictions; "
+              "not publication-grade performance evidence.",flush=True)
+    threshold=float(manifest["operating_threshold"])
+    if not 0 < threshold < 1:
+        raise ValueError("Invalid operating threshold in manifest")
     tiles=Tiles(a.tiles_dir/"train")
     patients=sorted({f.stem.rsplit("_g",1)[0] for f in tiles.files})
+    if len(patients)<2:
+        raise SystemExit("At least two patients are required for disjoint internal training/validation")
     random.Random(42).shuffle(patients)
     hold=set(patients[:max(1,round(0.2*len(patients)))])
     tr_idx=[i for i,f in enumerate(tiles.files) if f.stem.rsplit("_g",1)[0] not in hold]
@@ -91,7 +107,9 @@ def main():
             best=score;stale=0
             torch.save(dict(model_state_dict=model.state_dict(),variant=a.variant,
                 event_threshold=a.event_threshold,operating_threshold=threshold,
-                seed=a.seed,val_roi_dice=score,epoch=epoch),output/"best_model.pt")
+                seed=a.seed,val_roi_dice=score,epoch=epoch,
+                out_of_fold_training_probabilities=bool(
+                    manifest.get("out_of_fold_training_probabilities",False))),output/"best_model.pt")
         else:stale+=1
         rows.append(dict(epoch=epoch,train_loss=np.mean(losses),val_roi_dice=score,is_best=int(improved)))
         with (output/"metrics.csv").open("w",newline="") as f:
