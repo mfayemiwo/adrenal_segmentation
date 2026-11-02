@@ -1,0 +1,28 @@
+name: AdrenaSpike-3D syntax and ROI unit tests
+on:
+  push:
+    branches: [research/adrenaspike3d]
+  pull_request:
+    branches: [research/adrenaspike3d]
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile Phase 3 implementation
+        run: |
+          python -m py_compile \
+            src/models/adrenaspike3d.py \
+            src/data/adrenaspike_roi.py \
+            scripts/prepare_nnunet_adrenal.py \
+            scripts/evaluate_nnunet_adrenal.py \
+            scripts/cache_adrenaspike3d_inputs.py \
+            scripts/prepare_adrenaspike_tiles.py \
+            scripts/train_adrenaspike3d.py \
+            scripts/evaluate_adrenaspike3d.py \
+            scripts/evaluate_segmenter.py \
+            src/models/anatomy_spiking_memory.py \
+            tests/test_adrenaspike3d.py
