@@ -11,6 +11,10 @@ Example:
 """
 from __future__ import annotations
 import argparse
+import ctypes
+import ctypes.util
+import os
+import re
 import csv
 import json
 import math
@@ -19,6 +23,64 @@ import sys
 import threading
 import time
 from pathlib import Path
+
+
+def normalize_bdf(value):
+    """Canonicalise PCI bus addresses for exact HIP <-> AMD-SMI matching."""
+    value = str(value).strip().lower()
+    if re.fullmatch(r"[0-9a-f]{2}:[0-9a-f]{2}\\.[0-7]", value):
+        value = "0000:" + value
+    match = re.fullmatch(r"([0-9a-f]{1,4}):([0-9a-f]{2}):([0-9a-f]{2})\\.([0-7])", value)
+    if not match:
+        return None
+    domain, bus, dev, function = match.groups()
+    return f"{int(domain,16):04x}:{bus}:{dev}.{function}"
+
+
+def hip_device_zero_bdf():
+    """Ask HIP runtime for the physical BDF of logical GPU 0; no GPU work."""
+    guesses = [ctypes.util.find_library("amdhip64"), "libamdhip64.so"]
+    rocm = os.environ.get("ROCM_PATH", "/opt/rocm")
+    guesses.append(os.path.join(rocm, "lib", "libamdhip64.so"))
+    for library in filter(None, guesses):
+        try:
+            hip = ctypes.CDLL(library)
+            get_bdf = hip.hipDeviceGetPCIBusId
+            get_bdf.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+            get_bdf.restype = ctypes.c_int
+            buff = ctypes.create_string_buffer(64)
+            if get_bdf(buff, len(buff), 0) == 0:
+                return normalize_bdf(buff.value.decode())
+        except (OSError, AttributeError, ValueError):
+            continue
+    return None
+
+
+def select_gpu(sm, handles, gpu_index):
+    """Never assume AMD-SMI index zero is the assigned HIP device."""
+    if gpu_index is not None:
+        if not 0 <= gpu_index < len(handles):
+            raise ValueError(f"AMD-SMI index {gpu_index} is not in 0..{len(handles)-1}")
+        return gpu_index, "explicit_user_index"
+    if len(handles) == 1:
+        return 0, "only_one_amdsmi_device_visible"
+    hip_bdf = hip_device_zero_bdf()
+    if hip_bdf is None:
+        raise ValueError(f"AMD-SMI sees {len(handles)} devices but HIP bus ID could not be read. "
+                         "Set ENERGY_GPU_INDEX to the *verified* physical AMD-SMI index.")
+    matches = []
+    for index, handle in enumerate(handles):
+        try:
+            bdf = normalize_bdf(sm.amdsmi_get_gpu_device_bdf(handle))
+        except Exception:
+            continue
+        if bdf == hip_bdf:
+            matches.append(index)
+    if len(matches) != 1:
+        raise ValueError(f"HIP GPU 0 BDF={hip_bdf}; AMD-SMI match count={len(matches)}. "
+                         "Cannot safely attribute device energy. Set ENERGY_GPU_INDEX "
+                         "only after verifying the physical mapping.")
+    return matches[0], "hip_pci_bdf_match"
 
 
 def numeric(value):
@@ -82,6 +144,7 @@ def main():
     parser.add_argument("--interval", type=float, default=0.5, help="sample interval in seconds")
     parser.add_argument("--idle-seconds", type=float, default=3.0)
     parser.add_argument("--require-energy", action="store_true")
+    parser.add_argument("--probe", action="store_true", help="Check usable telemetry without launching workload")
     parser.add_argument("command", nargs=argparse.REMAINDER,
                         help="command to run after a '--' separator")
     args = parser.parse_args()
@@ -90,7 +153,7 @@ def main():
     if args.interval < 0.1 or args.idle_seconds < 0:
         parser.error("interval must be >=0.1 and idle-seconds must be >=0")
     command = args.command[1:] if args.command and args.command[0] == "--" else args.command
-    if not command:
+    if not command and not args.probe:
         parser.error("provide a command after --")
 
     try:
@@ -103,16 +166,25 @@ def main():
     amdsmi.amdsmi_init()
     try:
         handles = amdsmi.amdsmi_get_processor_handles()
-        if args.gpu_index is None and len(handles) != 1:
-            raise SystemExit(
-                f"AMD-SMI sees {len(handles)} devices: supply --gpu-index explicitly "
-                "after mapping the assigned HIP GPU to the correct AMD-SMI device."
-            )
-        idx = args.gpu_index if args.gpu_index is not None else 0
-        if idx < 0 or idx >= len(handles):
-            raise SystemExit(f"gpu-index {idx} outside available 0..{len(handles)-1}")
+        try:
+            idx, mapping = select_gpu(amdsmi, handles, args.gpu_index)
+        except ValueError as exc:
+            raise SystemExit(f"GPU energy mapping unavailable: {exc}") from exc
         handle = handles[idx]
         args.output_dir.mkdir(parents=True, exist_ok=True)
+        if args.probe:
+            measured = sample(amdsmi, handle)
+            available = measured["power_w"] is not None or measured["energy_j_counter"] is not None
+            report = {"telemetry_available": available, "physical_amdsmi_index": idx,
+                      "mapping": mapping, "hip_gpu_0_bdf": hip_device_zero_bdf(),
+                      "smi_bdf": amdsmi.amdsmi_get_gpu_device_bdf(handle),
+                      "sample": measured}
+            (args.output_dir / "telemetry_probe.json").write_text(
+                json.dumps(report, indent=2) + "\\n")
+            print(json.dumps(report, indent=2), flush=True)
+            if not available:
+                raise SystemExit("No power/energy counter exposed for this GPU")
+            return
         idle = []
         end_idle = time.monotonic() + args.idle_seconds
         while time.monotonic() < end_idle:
@@ -156,7 +228,7 @@ def main():
         net_estimate = (max(actual_j - idle_w * elapsed, 0.0)
                         if actual_j is not None and idle_w is not None else None)
         report = {
-            "label": args.label, "device_smi_index": idx, "command": command,
+            "label": args.label, "device_smi_index": idx, "gpu_mapping": mapping, "command": command,
             "return_code": rc, "elapsed_s": elapsed,
             "energy_j": actual_j, "energy_source": source,
             "energy_counter_j": direct_j, "power_integrated_j": estimated_j,
