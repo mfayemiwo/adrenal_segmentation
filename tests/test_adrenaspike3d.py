@@ -51,3 +51,18 @@ def test_zero_event_diagnostic():
     y=model(torch.zeros_like(p),p,zero_events=True)
     assert y.shape==p.shape
     assert model.last_event_density.item()==0
+
+
+@pytest.mark.parametrize("variant",["snn","analog"])
+def test_zero_correction_preserves_baseline_operating_threshold(variant):
+    """A zero residual must be exactly the baseline threshold decision."""
+    torch=pytest.importorskip("torch")
+    pytest.importorskip("snntorch")
+    from src.models.adrenaspike3d import AdrenaSpike3D
+    model=AdrenaSpike3D(variant).eval()
+    with torch.no_grad():
+        model.residual_scale.zero_()
+        prob=torch.linspace(0.01,0.15,5*16*16).reshape(1,1,5,16,16)
+        ct=torch.zeros_like(prob)
+        refined=(model(ct,prob,operating_threshold=0.03).sigmoid()>=0.5)
+    assert torch.equal(refined, prob>=0.03)
