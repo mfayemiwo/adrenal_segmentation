@@ -28,9 +28,9 @@ from pathlib import Path
 def normalize_bdf(value):
     """Canonicalise PCI bus addresses for exact HIP <-> AMD-SMI matching."""
     value = str(value).strip().lower()
-    if re.fullmatch(r"[0-9a-f]{2}:[0-9a-f]{2}\\.[0-7]", value):
+    if re.fullmatch(r"[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]", value):
         value = "0000:" + value
-    match = re.fullmatch(r"([0-9a-f]{1,4}):([0-9a-f]{2}):([0-9a-f]{2})\\.([0-7])", value)
+    match = re.fullmatch(r"([0-9a-f]{1,4}):([0-9a-f]{2}):([0-9a-f]{2})\.([0-7])", value)
     if not match:
         return None
     domain, bus, dev, function = match.groups()
@@ -180,7 +180,7 @@ def main():
                       "smi_bdf": amdsmi.amdsmi_get_gpu_device_bdf(handle),
                       "sample": measured}
             (args.output_dir / "telemetry_probe.json").write_text(
-                json.dumps(report, indent=2) + "\\n")
+                json.dumps(report, indent=2) + "\n")
             print(json.dumps(report, indent=2), flush=True)
             if not available:
                 raise SystemExit("No power/energy counter exposed for this GPU")
