@@ -28,9 +28,13 @@ jobs:
             tests/test_adrenaspike3d.py \
             scripts/measure_gpu_energy.py \
             scripts/run_phase2_energy_suite.py \
+            scripts/run_nnunet_energy_suite.py \
+            tests/test_nnunet_energy_suite.py \
             tests/test_gpu_energy_metrics.py
       - name: Validate 72-hour single-allocation launcher shell syntax
         run: bash -n scripts/run_adrenaspike_nnunet_all.sbatch
 
       - name: Unit-test AMD SMI energy conversion (no GPU required)
-        run: python -m unittest discover -s tests -p 'test_gpu_energy_metrics.py'
+        run: |
+          python -m unittest discover -s tests -p 'test_gpu_energy_metrics.py'
+          python -m unittest discover -s tests -p 'test_nnunet_energy_suite.py'
