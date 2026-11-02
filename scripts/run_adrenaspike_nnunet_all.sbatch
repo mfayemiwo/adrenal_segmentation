@@ -4,7 +4,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=96G
-#SBATCH --time=24:00:00
+#SBATCH --time=3-00:00:00
 #SBATCH --partition=k2-gpu-amd
 #SBATCH --gres=gpu:mi300x:1
 #SBATCH --output=nnunet3d_all.%j.out
@@ -43,7 +43,7 @@ note() { echo "[$(stamp)] $*"; }
 trap 'rc=$?; echo "[$(date "+%Y-%m-%d %H:%M:%S")] EXIT status=$rc; inspect nnunet3d_all.*.out/.err if nonzero" >&2' EXIT
 
 note "Single-allocation pipeline started: job=${SLURM_JOB_ID:-manual} dataset=$ID fold=$FOLD"
-note "Time limit requested: 24h; nnUNet training may need another submission"
+note "Time limit requested: 72h; nnUNet training may need another submission"
 note "Raw: $nnUNet_raw | Preprocessed: $nnUNet_preprocessed | Results: $nnUNet_results"
 for program in python nnUNetv2_plan_and_preprocess nnUNetv2_train nnUNetv2_predict; do
   command -v "$program" >/dev/null || { note "ERROR: required command missing: $program"; exit 2; }
