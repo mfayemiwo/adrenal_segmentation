@@ -61,8 +61,17 @@ def main():
     if a.smoke_test:
         a.max_train_tiles=a.max_val_tiles=4;a.max_epochs=2
     threshold=float(json.loads((a.volume_dir/"manifest.json").read_text())["operating_threshold"])
-    train=DataLoader(Tiles(a.tiles_dir/"train",a.max_train_tiles),batch_size=a.batch_size,shuffle=True)
-    val=DataLoader(Tiles(a.tiles_dir/"val",a.max_val_tiles),batch_size=a.batch_size)
+    tiles=Tiles(a.tiles_dir/"train")
+    patients=sorted({f.stem.rsplit("_g",1)[0] for f in tiles.files})
+    random.Random(42).shuffle(patients)
+    hold=set(patients[:max(1,round(0.2*len(patients)))])
+    tr_idx=[i for i,f in enumerate(tiles.files) if f.stem.rsplit("_g",1)[0] not in hold]
+    va_idx=[i for i,f in enumerate(tiles.files) if f.stem.rsplit("_g",1)[0] in hold]
+    if a.max_train_tiles:tr_idx=tr_idx[:a.max_train_tiles]
+    if a.max_val_tiles:va_idx=va_idx[:a.max_val_tiles]
+    train=DataLoader(torch.utils.data.Subset(tiles,tr_idx),batch_size=a.batch_size,shuffle=True)
+    val=DataLoader(torch.utils.data.Subset(tiles,va_idx),batch_size=a.batch_size)
+    print(f"Patient-disjoint internal dev: {len(tr_idx)} train / {len(va_idx)} val ROI tiles",flush=True)
     model=AdrenaSpike3D(a.variant,event_threshold=a.event_threshold).cuda()
     optim=torch.optim.AdamW(model.parameters(),lr=a.lr,weight_decay=1e-4)
     output=Path("runs")/a.run_name;output.mkdir(parents=True,exist_ok=True)
