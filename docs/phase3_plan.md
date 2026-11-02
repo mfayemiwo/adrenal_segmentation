@@ -102,11 +102,11 @@ Look at `runs/phase3_diagnostics/{anatomy_snn,anatomy_analog}/{none,zero_events,
 
 This pipeline automatically runs preparation, preprocessing, 3D full-resolution
 nnU-Net fold training, heldout prediction, and per-gland Dice/HD95/NSD
-evaluation **in one SLURM allocation**, requesting **24 hours**. There is
+evaluation **in one SLURM allocation**, requesting **72 hours**. There is
 no reason to submit each stage separately. It skips finished stages on
 re-entry and resumes the training checkpoint if it exists.
 
-Before submitting, confirm that the cluster's queue permits 24h and that
+Before submitting, confirm that the cluster's queue permits 72h and that
 `nnunetv2` is installed inside `.venv`. Verify the cluster's permitted
 wall time using `sinfo -p k2-gpu-amd -o "%P %l"`. Some partitions cap jobs
 below 24 hours; if so, adjust the `#SBATCH --time` value to the actual limit.
@@ -125,7 +125,7 @@ If a job reaches its permitted wall time before the full training is
 finished, run the **same command** again. The launcher checks preparation,
 preprocessing, `checkpoint_latest` / `checkpoint_final`, and completed
 predictions. nnU-Net typically saves periodic checkpoints; any progress
-after the last checkpoint may be lost on time limit. A 24h request does not
+after the last checkpoint may be lost on time limit. A 72h request does not
 guarantee a completed 3D training run and does not change nnU-Net's original
 training schedule.
 
