@@ -69,14 +69,31 @@ else
     --dataset-id "$ID" "${PREP_ARGS[@]}"
 fi
 
-# 2. Planning and preprocessing, with re-entry after partial pre-processing.
-if [[ -s "$PREPROCESSED/nnUNetPlans.json" &&
-      -d "$PREPROCESSED/nnUNetPlans_3d_fullres" ]] &&
-      compgen -G "$PREPROCESSED/nnUNetPlans_3d_fullres/*.npz" >/dev/null; then
-  note "Stage 2/5: existing nnU-Net 3D preprocessing found; skipping"
+# 2. Verify *all* training cases were preprocessed, not just one partial
+# npz. Both the older .npz and newer .b2nd nnU-Net case formats are supported.
+preprocessing_complete() {
+  [[ -s "$PREPROCESSED/nnUNetPlans.json" ]] || return 1
+  python - "$DATASET/split_manifest.json" "$PREPROCESSED/nnUNetPlans_3d_fullres" <<'PY'
+import json
+import sys
+from pathlib import Path
+manifest = json.loads(Path(sys.argv[1]).read_text())
+root = Path(sys.argv[2])
+names = manifest.get("train_cases", [])
+if not names or not root.is_dir():
+    raise SystemExit(1)
+missing = [name for name in names if not any(
+    (root / (name + ext)).is_file() for ext in (".npz", ".b2nd")
+)]
+raise SystemExit(1 if missing else 0)
+PY
+}
+if preprocessing_complete; then
+  note "Stage 2/5: all training cases already preprocessed; skipping"
 else
-  note "Stage 2/5: nnU-Net fingerprint, plan, and preprocessing"
+  note "Stage 2/5: nnU-Net fingerprint, planning, and preprocessing"
   nnUNetv2_plan_and_preprocess -d "$ID" --verify_dataset_integrity -c 3d_fullres
+  preprocessing_complete || { note "ERROR: preprocessing incomplete"; exit 5; }
 fi
 
 # 3. Train the selected fold. Official nnU-Net resumes using --c when
