@@ -7,6 +7,7 @@ A 3D nnU-Net backbone is a separate study arm; this module is backend-agnostic.
 """
 from __future__ import annotations
 
+import math
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -87,7 +88,7 @@ class AdrenaSpike3D(nn.Module):
         self.last_spike_rate = None
         self.last_event_density = None
 
-    def forward(self, ct, prob, *, zero_events=False, use_gate=True):
+    def forward(self, ct, prob, *, operating_threshold=0.5, zero_events=False, use_gate=True):
         # Both arrays (B,1,D,H,W). Probabilities must already be calibrated
         # or produced with a single, pre-specified checkpoint/threshold.
         if ct.ndim != 5 or ct.shape != prob.shape or prob.shape[1] != 1:
@@ -114,7 +115,10 @@ class AdrenaSpike3D(nn.Module):
         disagreement = torch.cat((torch.zeros_like(p[:, :, :1]),
                                   delta.abs()), dim=2)
         gate = torch.maximum(uncertainty, disagreement) if use_gate else torch.ones_like(p)
-        logits = torch.logit(p) + self.residual_scale.tanh() * gate * correction
+        if not 0 < operating_threshold < 1:
+            raise ValueError("operating_threshold must be strictly between zero and one")
+        reference_logit = math.log(operating_threshold / (1.0 - operating_threshold))
+        logits = torch.logit(p) - reference_logit + self.residual_scale.tanh() * gate * correction
         self.last_spike_rate = (r1 + r2).mul(0.5).detach()
         self.last_event_density = ((pos > 0).float().mean() +
                                    (neg > 0).float().mean()).mul(0.5).detach()
