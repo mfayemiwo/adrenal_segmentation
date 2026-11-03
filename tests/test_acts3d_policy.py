@@ -2,7 +2,7 @@
 import unittest
 
 from src.algorithms.acts3d_policy import (
-    RegionEstimate, RoutingConfig, route_actions,
+    RegionEstimate, RoutingConfig, route_actions, region_from_outcomes,
 )
 
 
@@ -13,6 +13,19 @@ def region(name="r1", *, gland="left", analog=0.1, spike=0.2, event=0.1,
 
 
 class ACTS3DPolicyTests(unittest.TestCase):
+    def test_intervention_potentials_derive_consistent_event_and_expert_gains(self):
+        r = region_from_outcomes(
+            "counterfactual", "left", loss_baseline=1.0,
+            loss_analog=0.8, loss_spike=0.6, loss_spike_zero_events=0.95,
+            harm_prob_analog=0.01, harm_prob_spike=0.01,
+            cost_analog=1.0, cost_spike=2.0)
+        self.assertAlmostEqual(r.gain_analog, 0.2)
+        self.assertAlmostEqual(r.gain_spike, 0.4)
+        self.assertAlmostEqual(r.event_gain, 0.35)
+        self.assertAlmostEqual(r.spike_vs_analog_gain, 0.2)
+        out = route_actions([r], RoutingConfig(budget=2., solver="dp", cost_quantum=1.))
+        self.assertEqual(out.decisions[0].action, "spike")
+
     def test_real_events_choose_spike_when_excess_advantage_present(self):
         out = route_actions([region()], RoutingConfig(budget=4., solver="dp", cost_quantum=1.))
         self.assertEqual(out.decisions[0].action, "spike")
