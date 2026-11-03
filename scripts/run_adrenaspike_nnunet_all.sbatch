@@ -16,24 +16,25 @@
 # Prepared/preprocessed data and complete predictions are also reused.
 set -Eeuo pipefail
 
-cd "${SLURM_SUBMIT_DIR:-$PWD}"
+# Single authoritative project location; all previous datasets and outputs live here.
+# Override only if this repository is deliberately relocated.
+PROJECT_ROOT="${ADRENAL_PROJECT_ROOT:-/mnt/userapps/isrcdl_apps/mfayemiwo/DaisyProject/adrenal_segmentation}"
+if [[ ! -d "$PROJECT_ROOT" ]]; then
+  echo "ERROR: project directory missing: $PROJECT_ROOT" >&2
+  exit 2
+fi
+cd "$PROJECT_ROOT"
 module load amd-rocm/rocm-6.3.3
 module load apps/python3/3.12.4/gcc-14.1.0
 module load compilers/gcc/14.1.0
 module load libs/gcc/14.1.0
 source .venv/bin/activate
 
-# The login-node home quota can be exhausted even when the project filesystem
-# has plenty of room. Triton and torch.compile otherwise write ~/.triton.
-# Prefer SLURM-provisioned node-local scratch when available, else a private
-# project cache. Do not put large caches in $HOME.
-if [[ -n "${NNUNET_CACHE_BASE:-}" ]]; then
-  CACHE_BASE="$NNUNET_CACHE_BASE"
-elif [[ -n "${SLURM_TMPDIR:-}" && -d "$SLURM_TMPDIR" && -w "$SLURM_TMPDIR" ]]; then
-  CACHE_BASE="$SLURM_TMPDIR/nnunet_cache"
-else
-  CACHE_BASE="$PWD/.hpc_cache/nnunet"
-fi
+# Keep all caches within the chosen project directory (not quota-limited
+# /users/mfayemiwo and not ephemeral SLURM_TMPDIR). This directory is shared
+# across jobs and survives checkpoint-based resubmissions.
+# An explicit NNUNET_CACHE_BASE still permits a deliberate override.
+CACHE_BASE="${NNUNET_CACHE_BASE:-$PROJECT_ROOT/.hpc_cache/nnunet}"
 mkdir -p "$CACHE_BASE"
 CACHE_BASE="$(cd "$CACHE_BASE" && pwd -P)"
 export TRITON_HOME="$CACHE_BASE"
