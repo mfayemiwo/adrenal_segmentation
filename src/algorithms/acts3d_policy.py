@@ -44,6 +44,46 @@ class RegionEstimate:
     cost_spike: float
 
 
+def region_from_outcomes(
+    region_id: str,
+    gland: Literal["left", "right"],
+    *,
+    loss_baseline: float,
+    loss_analog: float,
+    loss_spike: float,
+    loss_spike_zero_events: float,
+    harm_prob_analog: float,
+    harm_prob_spike: float,
+    cost_analog: float,
+    cost_spike: float,
+) -> RegionEstimate:
+    """Derive algebraically CONSISTENT advantages from four predicted losses.
+
+    This is the preferred interface for a learned potential-outcomes model.
+    The four losses are predictions made from pre-refinement CT/CNN features,
+    NOT ground-truth measurements at inference. Ground truth is permitted only
+    when producing offline supervised targets on disjoint development cases.
+    """
+    for name, value in (
+        ("loss_baseline", loss_baseline), ("loss_analog", loss_analog),
+        ("loss_spike", loss_spike), ("loss_spike_zero_events", loss_spike_zero_events),
+    ):
+        if not math.isfinite(value):
+            raise ValueError(f"{name} must be finite")
+    return RegionEstimate(
+        region_id=region_id,
+        gland=gland,
+        gain_analog=loss_baseline - loss_analog,
+        gain_spike=loss_baseline - loss_spike,
+        event_gain=loss_spike_zero_events - loss_spike,
+        spike_vs_analog_gain=loss_analog - loss_spike,
+        harm_prob_analog=harm_prob_analog,
+        harm_prob_spike=harm_prob_spike,
+        cost_analog=cost_analog,
+        cost_spike=cost_spike,
+    )
+
+
 @dataclass(frozen=True)
 class RoutingConfig:
     budget: float
