@@ -23,6 +23,41 @@ module load compilers/gcc/14.1.0
 module load libs/gcc/14.1.0
 source .venv/bin/activate
 
+# The login-node home quota can be exhausted even when the project filesystem
+# has plenty of room. Triton and torch.compile otherwise write ~/.triton.
+# Prefer SLURM-provisioned node-local scratch when available, else a private
+# project cache. Do not put large caches in $HOME.
+if [[ -n "${NNUNET_CACHE_BASE:-}" ]]; then
+  CACHE_BASE="$NNUNET_CACHE_BASE"
+elif [[ -n "${SLURM_TMPDIR:-}" && -d "$SLURM_TMPDIR" && -w "$SLURM_TMPDIR" ]]; then
+  CACHE_BASE="$SLURM_TMPDIR/nnunet_cache"
+else
+  CACHE_BASE="$PWD/.hpc_cache/nnunet"
+fi
+mkdir -p "$CACHE_BASE"
+CACHE_BASE="$(cd "$CACHE_BASE" && pwd -P)"
+export TRITON_HOME="$CACHE_BASE"
+export TRITON_CACHE_DIR="$CACHE_BASE/triton"
+export TORCHINDUCTOR_CACHE_DIR="$CACHE_BASE/torchinductor"
+export XDG_CACHE_HOME="$CACHE_BASE/xdg"
+export TORCH_HOME="$CACHE_BASE/torch"
+export TORCH_EXTENSIONS_DIR="$CACHE_BASE/torch_extensions"
+export MIOPEN_USER_DB_PATH="$CACHE_BASE/miopen_db"
+export MIOPEN_CUSTOM_CACHE_DIR="$CACHE_BASE/miopen_cache"
+mkdir -p "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR" \
+         "$XDG_CACHE_HOME" "$TORCH_HOME" "$TORCH_EXTENSIONS_DIR" \
+         "$MIOPEN_USER_DB_PATH" "$MIOPEN_CUSTOM_CACHE_DIR"
+# nnU-Net v2 enables torch.compile by default, which triggered the previous
+# failure in ~/.triton. Default to the robust uncompiled ROCm training path.
+# Override deliberately with NNUNET_COMPILE=T only after validating the
+# compiler configuration, its disk space and Python/ROCm compatibility.
+export nnUNet_compile="${NNUNET_COMPILE:-F}"
+echo "[Cache] root=$CACHE_BASE | nnUNet_compile=$nnUNet_compile"
+df -h "$CACHE_BASE"
+# Fail early if this allocation cannot write its caches.
+printf 'cache-write-test\n' > "$CACHE_BASE/.write_test"
+rm -f "$CACHE_BASE/.write_test"
+
 export nnUNet_raw="${NNUNET_RAW:-$PWD/nnunet_raw}"
 export nnUNet_preprocessed="${NNUNET_PREPROCESSED:-$PWD/nnunet_preprocessed}"
 export nnUNet_results="${NNUNET_RESULTS:-$PWD/nnunet_results}"
