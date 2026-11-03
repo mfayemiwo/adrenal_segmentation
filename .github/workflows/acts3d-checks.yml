@@ -17,6 +17,7 @@ jobs:
         run: |
           python -m py_compile \
             src/algorithms/acts3d_policy.py \
+            src/algorithms/acts3d_execution.py \
             tests/test_acts3d_policy.py
       - name: Test tri-action policy without external libraries or GPU
         run: python -m unittest discover -s tests -p 'test_acts3d_policy.py' -v
