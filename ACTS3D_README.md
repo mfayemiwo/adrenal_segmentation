@@ -22,12 +22,13 @@ A learned decision procedure can select *no refinement, a matched analog refiner
 3. [Two-publication work packages, decision gates and resources](docs/acts3d_research_plan.md).
 4. [Provisional, **not frozen**, preregistration](docs/acts3d_preregistration_draft.md).
 5. [Reference tri-action router](src/algorithms/acts3d_policy.py).
-6. [Reference unit tests](tests/test_acts3d_policy.py).
+6. [Conditional expert-execution contract](src/algorithms/acts3d_execution.py).
+7. [Reference unit tests](tests/test_acts3d_policy.py).
 
 ### CPU-only local verification (no GPU allocation)
 
 ```bash
-python -m py_compile src/algorithms/acts3d_policy.py tests/test_acts3d_policy.py
+python -m py_compile src/algorithms/acts3d_policy.py src/algorithms/acts3d_execution.py tests/test_acts3d_policy.py
 python -m unittest discover -s tests -p 'test_acts3d_policy.py' -v
 ```
 
