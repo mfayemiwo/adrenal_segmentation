@@ -58,7 +58,7 @@ H_S(i)      = 1[ ell_S(i) - ell_0(i) > eps_harm ]
 
 `G_events>0` is **necessary but not sufficient** for choosing S: S must also beat baseline and the analog under estimated cost and harm. Histograms must show if events are useful anywhere, rather than trusting a nonzero spike-rate number.
 
-The estimator `Q_phi` sees only features accessible before refinement (baseline logits, uncertainty, mm-normalized differences, anatomical location descriptors, potential region size). It predicts `G_A,G_S,G_events,G_S_vs_A,P(H_A),P(H_S)`. If full CNN feature access is expensive, use cached low-resolution backbone outputs and measure this routing cost.
+The estimator `Q_phi` sees only features accessible before refinement (baseline logits, uncertainty, mm-normalized differences, anatomical location descriptors, potential region size). It predicts the **four expected potential losses** `(ell_0_hat, ell_A_hat, ell_S_hat, ell_S0_hat)` and harm probabilities `P(H_A),P(H_S)`; **all utility comparisons are derived as algebraic differences of these four predictions**. This prevents logically inconsistent independent heads (for example, a predicted SNN-vs-analog benefit disagreeing with the predicted baseline gains). If full CNN feature access is expensive, use cached low-resolution backbone outputs and measure this routing cost.
 
 Use cross-fitting: generate target outcomes from refiners not trained on the target cases; then fit and calibrate the advantage/harm estimator on disjoint development patients. This breaks the optimistic bias of labeling a model's training examples with its own apparent performance.
 
