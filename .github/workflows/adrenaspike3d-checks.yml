@@ -36,6 +36,9 @@ jobs:
       - name: Validate 72-hour single-allocation launcher shell syntax
         run: bash -n scripts/run_adrenaspike_nnunet_all.sbatch
 
+      - name: Validate login-node nnU-Net ROCm setup script syntax
+        run: bash -n scripts/setup_nnunet_rocm.sh
+
       - name: Unit-test AMD SMI energy conversion (no GPU required)
         run: |
           python -m unittest discover -s tests -p 'test_gpu_energy_metrics.py'
