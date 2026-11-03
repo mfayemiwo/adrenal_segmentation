@@ -1,0 +1,22 @@
+name: ACTS-3D algorithm reference and documentation checks
+on:
+  push:
+    branches: [research/acts3d-algorithm]
+  pull_request:
+    branches: [research/acts3d-algorithm]
+
+jobs:
+  policy-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile pure-Python ACTS-3D reference and tests
+        run: |
+          python -m py_compile \
+            src/algorithms/acts3d_policy.py \
+            tests/test_acts3d_policy.py
+      - name: Test tri-action policy without external libraries or GPU
+        run: python -m unittest discover -s tests -p 'test_acts3d_policy.py' -v
