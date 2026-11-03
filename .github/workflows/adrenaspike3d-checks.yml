@@ -29,6 +29,8 @@ jobs:
             scripts/measure_gpu_energy.py \
             scripts/run_phase2_energy_suite.py \
             scripts/run_nnunet_energy_suite.py \
+            scripts/collect_adrenal_results.py \
+            tests/test_collect_adrenal_results.py \
             tests/test_nnunet_energy_suite.py \
             tests/test_gpu_energy_metrics.py
       - name: Validate 72-hour single-allocation launcher shell syntax
@@ -38,3 +40,4 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_gpu_energy_metrics.py'
           python -m unittest discover -s tests -p 'test_nnunet_energy_suite.py'
+          python -m unittest discover -s tests -p 'test_collect_adrenal_results.py'
