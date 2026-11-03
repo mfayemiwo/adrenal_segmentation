@@ -1,6 +1,7 @@
 """CPU-only tests of ACTS-3D algorithmic routing invariants, no GPU required."""
 import unittest
 
+from src.algorithms.acts3d_execution import execute_selected
 from src.algorithms.acts3d_policy import (
     RegionEstimate, RoutingConfig, route_actions, region_from_outcomes,
 )
@@ -25,6 +26,30 @@ class ACTS3DPolicyTests(unittest.TestCase):
         self.assertAlmostEqual(r.spike_vs_analog_gain, 0.2)
         out = route_actions([r], RoutingConfig(budget=2., solver="dp", cost_quantum=1.))
         self.assertEqual(out.decisions[0].action, "spike")
+
+    def test_unselected_spiking_expert_is_never_executed(self):
+        decisions = route_actions([
+            region("left_roi", analog=0.5, spike=0.7, event=0.0, ca=1., cs=2.),
+            region("right_roi", gland="right", analog=-0.1, spike=0.0, ca=1., cs=2.),
+        ], RoutingConfig(budget=5.)).decisions
+        calls = {"analog": 0, "spike": 0}
+        def analog(ids):
+            calls["analog"] += 1
+            return {rid: 0.95 for rid in ids}
+        def spike(ids):
+            calls["spike"] += 1
+            raise AssertionError("spiking refiner must NOT execute")
+        def merge(out, rid, value):
+            out[rid] = value
+        baseline = {"left_roi": 0.2, "right_roi": 0.3, "other": 0.4}
+        report = execute_selected(baseline, decisions,
+                                  analog_batch=analog, spike_batch=spike,
+                                  merge_patch=merge)
+        self.assertEqual(calls, {"analog": 1, "spike": 0})
+        self.assertEqual(report.output["left_roi"], 0.95)
+        self.assertEqual(report.output["right_roi"], 0.3)
+        self.assertEqual(report.output["other"], 0.4)
+        self.assertEqual(baseline["left_roi"], 0.2)
 
     def test_real_events_choose_spike_when_excess_advantage_present(self):
         out = route_actions([region()], RoutingConfig(budget=4., solver="dp", cost_quantum=1.))
