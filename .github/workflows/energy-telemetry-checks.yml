@@ -1,0 +1,30 @@
+name: AMD MI300X energy telemetry preflight checks
+on:
+  push:
+    branches: [research/adrenaspike3d]
+    paths:
+      - "scripts/measure_gpu_energy.py"
+      - "scripts/probe_mi300x_telemetry.sbatch"
+      - "tests/test_energy_binding_discovery.py"
+      - ".github/workflows/energy-telemetry-checks.yml"
+  pull_request:
+    paths:
+      - "scripts/measure_gpu_energy.py"
+      - "scripts/probe_mi300x_telemetry.sbatch"
+      - "tests/test_energy_binding_discovery.py"
+      - ".github/workflows/energy-telemetry-checks.yml"
+
+jobs:
+  python-and-sbatch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check bash syntax and Python imports
+        run: |
+          bash -n scripts/probe_mi300x_telemetry.sbatch
+          python -m py_compile scripts/measure_gpu_energy.py tests/test_energy_binding_discovery.py
+      - name: Test import discovery and energy accumulator conversion
+        run: python -m unittest discover -s tests -p 'test_energy_binding_discovery.py' -v
