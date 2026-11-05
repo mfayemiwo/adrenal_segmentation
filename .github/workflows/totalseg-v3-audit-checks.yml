@@ -1,0 +1,32 @@
+name: TotalSegmentator v3 adrenal dataset audit checks
+on:
+  push:
+    branches: [research/adrenaspike3d]
+    paths:
+      - "scripts/audit_totalsegmentator_v3.py"
+      - "scripts/audit_totalsegmentator_v3.sbatch"
+      - "tests/test_audit_totalsegmentator_v3.py"
+      - ".github/workflows/totalseg-v3-audit-checks.yml"
+  pull_request:
+    paths:
+      - "scripts/audit_totalsegmentator_v3.py"
+      - "scripts/audit_totalsegmentator_v3.sbatch"
+      - "tests/test_audit_totalsegmentator_v3.py"
+      - ".github/workflows/totalseg-v3-audit-checks.yml"
+
+jobs:
+  audit-cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install CPU-only imaging dependencies
+        run: python -m pip install "numpy>=1.26,<3" "nibabel>=5.2,<6"
+      - name: Check syntax
+        run: |
+          bash -n scripts/audit_totalsegmentator_v3.sbatch
+          python -m py_compile scripts/audit_totalsegmentator_v3.py tests/test_audit_totalsegmentator_v3.py
+      - name: Test per-case audit against synthetic NIfTI examples
+        run: python -m unittest discover -s tests -p 'test_audit_totalsegmentator_v3.py' -v
