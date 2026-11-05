@@ -5,6 +5,7 @@ on:
     paths:
       - "scripts/postprocess_nnunet_adrenal.py"
       - "scripts/run_nnunet_adrenal_postprocessing.sbatch"
+      - "scripts/resume_nnunet_adrenal_postprocessing.sbatch"
       - "scripts/audit_nnunet_adrenal_failures.py"
       - "tests/test_postprocess_nnunet_adrenal.py"
       - ".github/workflows/nnunet-postprocessing-checks.yml"
@@ -27,6 +28,7 @@ jobs:
       - name: Syntax verification
         run: |
           bash -n scripts/run_nnunet_adrenal_postprocessing.sbatch
+          bash -n scripts/resume_nnunet_adrenal_postprocessing.sbatch
           python -m py_compile scripts/postprocess_nnunet_adrenal.py scripts/audit_nnunet_adrenal_failures.py tests/test_postprocess_nnunet_adrenal.py
       - name: Connected component and NIfTI preservation tests
         run: python -m unittest discover -s tests -p 'test_postprocess_nnunet_adrenal.py' -v
