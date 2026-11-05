@@ -96,13 +96,20 @@ def run(args: argparse.Namespace) -> None:
     files = sorted(source.glob("*.nii.gz"))
     if not files:
         raise FileNotFoundError(f"No segmentation .nii.gz files in {source}")
+    if getattr(args, "resume", False) and args.force:
+        raise ValueError("--resume and --force cannot both be selected")
     dest.mkdir(parents=True, exist_ok=True)
 
     records = []
+    created = 0
+    verified = 0
     for path in files:
         target = dest / path.name
-        if target.exists() and not args.force:
-            raise FileExistsError(f"{target} exists. Use --force to replace postprocessed copy.")
+        if target.exists() and not args.force and not getattr(args, "resume", False):
+            raise FileExistsError(
+                f"{target} exists. Use --resume to verify and reuse existing "
+                "output, or --force to replace the postprocessed copy."
+            )
         img = nib.load(str(path))
         labels = np.asarray(img.dataobj)
         fixed, changes = postprocess_mask(
@@ -110,19 +117,37 @@ def run(args: argparse.Namespace) -> None:
             min_relative_size=args.min_relative_size,
             connectivity=args.connectivity,
         )
-        header = img.header.copy()
-        header.set_data_dtype(np.uint8)
-        out_img = nib.Nifti1Image(fixed, img.affine, header)
-        # Preserve spatial transforms/metadata, including qform/sform codes.
-        qform, qcode = img.get_qform(coded=True)
-        sform, scode = img.get_sform(coded=True)
-        if qform is not None:
-            out_img.set_qform(qform, int(qcode))
-        if sform is not None:
-            out_img.set_sform(sform, int(scode))
-        tmp = dest / (path.name + ".partial.nii.gz")
-        nib.save(out_img, str(tmp))
-        tmp.replace(target)
+        if target.exists() and getattr(args, "resume", False):
+            # Validate the earlier, completed mask against the deterministic
+            # recipe, including its geometry; never silently trust a stale
+            # file from a different mode or parameter configuration.
+            previous = nib.load(str(target))
+            if (previous.shape != img.shape or
+                not np.allclose(previous.affine, img.affine, atol=1e-3, rtol=0) or
+                not np.array_equal(np.asarray(previous.dataobj), fixed)):
+                raise ValueError(
+                    f"Existing {target} differs from the requested cleanup. "
+                    "Stop rather than overwrite; use another output directory "
+                    "or explicitly review --force."
+                )
+            verified += 1
+            print(f"{path.name}: verified existing result ({verified} verified)",
+                  flush=True)
+        else:
+            header = img.header.copy()
+            header.set_data_dtype(np.uint8)
+            out_img = nib.Nifti1Image(fixed, img.affine, header)
+            # Preserve spatial transforms/metadata, including qform/sform codes.
+            qform, qcode = img.get_qform(coded=True)
+            sform, scode = img.get_sform(coded=True)
+            if qform is not None:
+                out_img.set_qform(qform, int(qcode))
+            if sform is not None:
+                out_img.set_sform(sform, int(scode))
+            tmp = dest / (path.name + ".partial.nii.gz")
+            nib.save(out_img, str(tmp))
+            tmp.replace(target)
+            created += 1
         for change in changes:
             change["case_id"] = path.name[:-7]
             change["mode"] = args.mode
@@ -148,7 +173,8 @@ def run(args: argparse.Namespace) -> None:
         ])
         writer.writeheader()
         writer.writerows(records)
-    print(f"Saved {len(files)} processed masks in {dest}", flush=True)
+    print(f"Complete: {len(files)} masks in {dest}; "
+          f"newly saved={created}, verified existing={verified}", flush=True)
     print(f"Audit: {report_path}", flush=True)
 
 
@@ -161,6 +187,8 @@ def main() -> None:
     p.add_argument("--min-relative-size", type=float, default=0.15)
     p.add_argument("--connectivity", type=int, choices=(1, 2, 3), default=2,
                    help="1=6, 2=18, 3=26 neighbouring voxels in 3D")
+    p.add_argument("--resume", action="store_true",
+                   help="Verify and reuse completed output NIfTIs, computing only missing ones")
     p.add_argument("--force", action="store_true",
                    help="Overwrite only output-directory masks (never input)")
     run(p.parse_args())
