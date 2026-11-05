@@ -146,6 +146,68 @@ def integrate_power(samples):
     return total if segments else None
 
 
+
+def load_amdsmi():
+    """Load AMD-SMI from .venv or ROCm's matching Python installation.
+
+    ROCm cluster modules commonly ship the amdsmi wrapper under
+    $ROCM_PATH/share/amd_smi rather than the user's Python virtualenv.
+    Do not install or mix a mismatched PyPI wrapper/ROCm native library.
+    """
+    import importlib
+    try:
+        return importlib.import_module("amdsmi")
+    except ModuleNotFoundError as exc:
+        if exc.name != "amdsmi":
+            raise
+
+    roots = [
+        os.environ.get("ROCM_PATH"),
+        os.environ.get("ROCM_HOME"),
+        os.environ.get("ROCM_ROOT"),
+        "/opt/rocm",
+    ]
+    root_paths = [Path(p).expanduser() for p in roots if p]
+    candidate_paths = []
+    for root in root_paths:
+        candidate_paths.extend((
+            root / "share" / "amd_smi",
+            root / "libexec" / "amd_smi",
+            root / "share" / "amd_smi" / "py-interface",
+        ))
+    override = os.environ.get("AMDSMI_PYTHONPATH")
+    if override:
+        candidate_paths.insert(0, Path(override).expanduser())
+
+    attempted = []
+    for directory in candidate_paths:
+        directory = directory.resolve()
+        if str(directory) in attempted:
+            continue
+        attempted.append(str(directory))
+        if not ((directory / "amdsmi" / "__init__.py").is_file() or
+                (directory / "amdsmi.py").is_file()):
+            continue
+        sys.path.insert(0, str(directory))
+        try:
+            imported = importlib.import_module("amdsmi")
+            print(f"AMD-SMI Python bindings loaded from {imported.__file__}", flush=True)
+            return imported
+        except ModuleNotFoundError as exc:
+            if exc.name != "amdsmi":
+                raise
+            sys.path.remove(str(directory))
+
+    raise ModuleNotFoundError(
+        "AMD-SMI Python binding unavailable in .venv or the matching ROCm "
+        "installation. Checked: " + ", ".join(attempted) +
+        ". Check ROCM_PATH and the ROCm module or ask cluster support for "
+        "the matching amdsmi Python wrapper. Do not install an arbitrary "
+        "newer ROCm binding into the existing torch .venv.",
+        name="amdsmi",
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--label", default="probe", help="Unique simple filename label")
@@ -168,11 +230,11 @@ def main():
         parser.error("provide a command after --")
 
     try:
-        import amdsmi
-    except ImportError as exc:
+        amdsmi = load_amdsmi()
+    except (ImportError, OSError) as exc:
         raise SystemExit(
-            "AMD-SMI Python binding unavailable. Load the ROCm module or activate "
-            "an environment with matching amdsmi bindings; no energy claims possible."
+            f"AMD-SMI Python binding unavailable or could not load its native "
+            f"library: {exc}; no energy claims possible."
         ) from exc
     amdsmi.amdsmi_init()
     try:
