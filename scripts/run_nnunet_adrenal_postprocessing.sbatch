@@ -50,6 +50,9 @@ if not pred or pred != truth:
 print(f"Validated {len(pred)} saved full-volume predictions.", flush=True)
 PY
 
+echo "[AUDIT] Investigate lowest-Dice patients, including any zero-overlap gland"
+python -u scripts/audit_nnunet_adrenal_failures.py --worst 5
+
 echo "[1/2] 3D largest-component cleanup (each gland separately)"
 python -u scripts/postprocess_nnunet_adrenal.py \
   --input-dir "$INPUT_DIR" \
