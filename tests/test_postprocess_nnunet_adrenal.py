@@ -84,6 +84,31 @@ class BilateralPostprocessingTests(unittest.TestCase):
             self.assertEqual(after.get_qform(coded=True)[1], 1)
             self.assertEqual(after.get_sform(coded=True)[1], 1)
             self.assertTrue((output / "postprocessing_audit.csv").exists())
+            # An interrupted run can resume; completed files must be
+            # verified and reused, not overwritten or silently trusted.
+            existing_file = output / "ct001.nii.gz"
+            old_bytes = existing_file.read_bytes()
+            run(SimpleNamespace(
+                input_dir=source, output_dir=output, mode="largest",
+                min_relative_size=0.15, connectivity=2,
+                force=False, resume=True,
+            ))
+            self.assertEqual(existing_file.read_bytes(), old_bytes)
+            self.assertTrue((output / "postprocessing_audit.csv").exists())
+            # A stale/corrupted mask must stop the resume safely.
+            broken = np.zeros_like(x)
+            nib.save(nib.Nifti1Image(broken, affine), str(existing_file))
+            with self.assertRaises(ValueError):
+                run(SimpleNamespace(
+                    input_dir=source, output_dir=output, mode="largest",
+                    min_relative_size=0.15, connectivity=2,
+                    force=False, resume=True,
+                ))
+            # Recreate a valid processed output for original existing-file checks.
+            run(SimpleNamespace(
+                input_dir=source, output_dir=output, mode="largest",
+                min_relative_size=0.15, connectivity=2, force=True,
+            ))
             with self.assertRaises(FileExistsError):
                 run(SimpleNamespace(
                     input_dir=source, output_dir=output, mode="largest",
