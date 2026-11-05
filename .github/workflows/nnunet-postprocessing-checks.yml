@@ -4,6 +4,8 @@ on:
     branches: [research/adrenaspike3d]
     paths:
       - "scripts/postprocess_nnunet_adrenal.py"
+      - "scripts/run_nnunet_adrenal_postprocessing.sbatch"
+      - "scripts/audit_nnunet_adrenal_failures.py"
       - "tests/test_postprocess_nnunet_adrenal.py"
       - ".github/workflows/nnunet-postprocessing-checks.yml"
   pull_request:
@@ -23,6 +25,8 @@ jobs:
       - name: Install CPU-only imaging dependencies
         run: python -m pip install "numpy>=1.26,<3" "scipy>=1.13,<2" "nibabel>=5.2,<6"
       - name: Syntax verification
-        run: python -m py_compile scripts/postprocess_nnunet_adrenal.py tests/test_postprocess_nnunet_adrenal.py
+        run: |
+          bash -n scripts/run_nnunet_adrenal_postprocessing.sbatch
+          python -m py_compile scripts/postprocess_nnunet_adrenal.py scripts/audit_nnunet_adrenal_failures.py tests/test_postprocess_nnunet_adrenal.py
       - name: Connected component and NIfTI preservation tests
         run: python -m unittest discover -s tests -p 'test_postprocess_nnunet_adrenal.py' -v
