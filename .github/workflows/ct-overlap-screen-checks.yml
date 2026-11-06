@@ -1,0 +1,32 @@
+name: AMOS-TotalSegmentator CT overlap screening checks
+on:
+  push:
+    branches: [research/adrenaspike3d]
+    paths:
+      - "scripts/screen_amos_totalseg_ct_overlap.py"
+      - "scripts/screen_amos_totalseg_ct_overlap.sbatch"
+      - "tests/test_screen_amos_totalseg_ct_overlap.py"
+      - ".github/workflows/ct-overlap-screen-checks.yml"
+  pull_request:
+    paths:
+      - "scripts/screen_amos_totalseg_ct_overlap.py"
+      - "scripts/screen_amos_totalseg_ct_overlap.sbatch"
+      - "tests/test_screen_amos_totalseg_ct_overlap.py"
+      - ".github/workflows/ct-overlap-screen-checks.yml"
+
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install CPU-only NIfTI dependencies
+        run: python -m pip install "numpy>=1.26,<3" "scipy>=1.13,<2" "nibabel>=5.2,<6"
+      - name: Check syntax
+        run: |
+          bash -n scripts/screen_amos_totalseg_ct_overlap.sbatch
+          python -m py_compile scripts/screen_amos_totalseg_ct_overlap.py tests/test_screen_amos_totalseg_ct_overlap.py
+      - name: Run exact and coarse overlap detection tests
+        run: python -m unittest discover -s tests -p 'test_screen_amos_totalseg_ct_overlap.py' -v
