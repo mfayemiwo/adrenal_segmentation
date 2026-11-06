@@ -137,7 +137,7 @@ def cached_fingerprint(path: Path, cache: Path, size: int) -> tuple[str, np.ndar
 
 def top_candidates(ref: np.ndarray, pool: np.ndarray, cutoff: float = 0.985,
                    top_k: int = 3) -> list[tuple[int, int, float]]:
-    """Return all pairs >= cutoff, and top-k per reference as a safety review list.
+    """Return all pairs >= cutoff, optionally adding top-k per reference for review.
 
     This is a similarity screen, not a validated matching/registration method.
     """
@@ -172,7 +172,7 @@ def main() -> None:
         "runs/ct_overlap_screen"))
     p.add_argument("--size", type=int, default=16)
     p.add_argument("--correlation-flag", type=float, default=0.985)
-    p.add_argument("--top-k", type=int, default=3)
+    p.add_argument("--top-k", type=int, default=0)
     p.add_argument("--limit", type=int, default=0,
                    help="Debug only: process first N cases per source")
     args = p.parse_args()
