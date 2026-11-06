@@ -39,8 +39,8 @@ class CTOverlapScreenTests(unittest.TestCase):
     def test_dissimilar_shapes_not_false_exact(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            a = np.zeros((8, 9, 10), dtype=np.float32)
-            b = np.zeros((8, 9, 11), dtype=np.float32)
+            a = np.indices((8, 9, 10))[0].astype(np.float32)
+            b = np.indices((8, 9, 11))[0].astype(np.float32)
             for name, value in (("a.nii.gz", a), ("b.nii.gz", b)):
                 nib.save(nib.Nifti1Image(value, np.eye(4)), str(root / name))
             h1, _ = fingerprint_ct(root / "a.nii.gz")
