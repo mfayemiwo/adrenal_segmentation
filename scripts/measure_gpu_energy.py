@@ -111,9 +111,15 @@ def get_power_watts(amdsmi, handle):
 
 
 def get_vram_bytes(sm, handle):
+    """ROCm 6.3 AMD-SMI get_gpu_vram_usage() returns MEGABYTES, not bytes.
+
+    Multiply by 10**6 before exposing bytes/GiB. This corrects the legacy
+    telemetry bug where e.g. 6620 MB was mistakenly reported as 6620 bytes.
+    Source: AMD SMI 24.7.1.0 amdsmi_get_gpu_vram_usage C API reference.
+    """
     data = sm.amdsmi_get_gpu_vram_usage(handle)
-    used = numeric(data.get("vram_used"))
-    return int(used) if used is not None and used >= 0 else None
+    used_mb = numeric(data.get("vram_used"))
+    return int(round(used_mb * 1_000_000)) if used_mb is not None and used_mb >= 0 else None
 
 
 def sample(sm, handle):
@@ -292,10 +298,33 @@ def main():
         direct_j = (last_j - first_j if first_j is not None and last_j is not None
                     and last_j >= first_j else None)
         estimated_j = integrate_power(readings)
-        actual_j = direct_j if direct_j is not None else estimated_j
-        source = ("amd_smi_energy_counter" if direct_j is not None
-                  else "trapezoid_power_samples" if estimated_j is not None
-                  else "unavailable")
+        # Some AMD-SMI energy counters are inaccurate even when the values
+        # parse successfully. Compare with independent integrated power before
+        # allowing the direct counter to become the canonical measurement.
+        ratio = (direct_j / estimated_j
+                 if direct_j is not None and estimated_j is not None
+                 and estimated_j > 0 else None)
+        counter_consistent = (0.8 <= ratio <= 1.2 if ratio is not None else None)
+        if counter_consistent is False:
+            actual_j = estimated_j
+            source = "trapezoid_power_samples_counter_disagreement"
+            print(
+                f"WARNING: cumulative AMD-SMI energy disagrees with power "
+                f"integration: counter={direct_j:.2f} J, samples={estimated_j:.2f} J, "
+                f"ratio={ratio:.3f}. Using sampled-power integration.",
+                flush=True,
+            )
+        elif direct_j is not None:
+            actual_j = direct_j
+            source = ("amd_smi_energy_counter_crosschecked"
+                      if counter_consistent is True
+                      else "amd_smi_energy_counter_power_crosscheck_unavailable")
+        elif estimated_j is not None:
+            actual_j = estimated_j
+            source = "trapezoid_power_samples"
+        else:
+            actual_j = None
+            source = "unavailable"
         watts = [x["power_w"] for x in readings if x["power_w"] is not None]
         mean_w = sum(watts) / len(watts) if watts else None
         used = [p["vram_used_bytes"] for p in readings if p.get("vram_used_bytes") is not None]
@@ -307,6 +336,9 @@ def main():
             "return_code": rc, "elapsed_s": elapsed,
             "energy_j": actual_j, "energy_source": source,
             "energy_counter_j": direct_j, "power_integrated_j": estimated_j,
+            "counter_to_integrated_power_ratio": ratio,
+            "counter_power_consistent_within_20pct": counter_consistent,
+            "vram_usage_unit": "bytes (from AMD-SMI megabytes)",
             "mean_sample_power_w": mean_w, "idle_mean_power_w": idle_w,
             "net_energy_after_idle_j_estimate": net_estimate,
             "sample_interval_s": args.interval, "sample_count": len(readings),
