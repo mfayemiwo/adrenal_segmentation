@@ -39,6 +39,16 @@ class AMDImportDiscoveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             select_gpu(None, [object()], gpu_index=2)
 
+    def test_rocm_vram_usage_megabytes_not_bytes(self):
+        from scripts.measure_gpu_energy import get_vram_bytes
+        class Dummy:
+            @staticmethod
+            def amdsmi_get_gpu_vram_usage(_):
+                return {"vram_used": 6620, "vram_total": 196300}
+        self.assertEqual(get_vram_bytes(Dummy(), None), 6_620_000_000)
+        self.assertAlmostEqual(get_vram_bytes(Dummy(), None) / (1024 ** 3),
+                               6.165355443954468, places=4)
+
     def test_direct_energy_uses_documented_microjoule_resolution(self):
         from scripts.measure_gpu_energy import get_energy_joules
         class Dummy:
