@@ -156,7 +156,47 @@ def run(args):
     return 0
 
 
+def validated_existing_trial(energy):
+    """Reconcile historical AMD-SMI logs without overwriting raw measurements.
+
+    Pre-fix logs stored vram_used reported in MB under a *_bytes field.
+    Also screen the cumulative energy counter against independent integrated
+    socket power, marking disagreement rather than silently trusting it.
+    """
+    trial = dict(energy)
+    direct = trial.get("energy_counter_j")
+    integrated = trial.get("power_integrated_j")
+    ratio = (float(direct) / float(integrated)
+             if direct is not None and integrated is not None
+             and math.isfinite(float(direct)) and math.isfinite(float(integrated))
+             and float(integrated) > 0 else None)
+    trial["counter_to_integrated_power_ratio"] = ratio
+    trial["counter_power_consistent_within_20pct"] = (
+        0.8 <= ratio <= 1.2 if ratio is not None else None
+    )
+    if ratio is not None and not 0.8 <= ratio <= 1.2:
+        trial["energy_j"] = float(integrated)
+        trial["energy_source"] = "trapezoid_power_samples_counter_disagreement"
+        trial["energy_reconciled_from_power_integration"] = True
+        print(f"WARNING: original trial counter/power disagreement ratio="
+              f"{ratio:.3f}; using power integration for summary; "
+              f"raw measured JSON remains unchanged", flush=True)
+    else:
+        trial["energy_reconciled_from_power_integration"] = False
+    raw_used = trial.get("peak_sampled_gpu_vram_bytes")
+    if raw_used is not None and trial.get("vram_usage_unit") != "bytes (from AMD-SMI megabytes)":
+        # Legacy unit bug: number in *_bytes was actually AMD-SMI megabytes.
+        trial["peak_sampled_gpu_vram_gib"] = (
+            float(raw_used) * 1_000_000 / (1024 ** 3)
+        )
+        trial["legacy_vram_mb_to_bytes_corrected"] = True
+    else:
+        trial["legacy_vram_mb_to_bytes_corrected"] = False
+    return trial
+
+
 def trial_row(number, energy, n, scores):
+    energy = validated_existing_trial(energy)
     j, sec = energy.get("energy_j"), energy.get("elapsed_s")
     if j is None or not math.isfinite(float(j)) or float(j) <= 0:
         raise ValueError("Unusable nnU-Net measured GPU energy")
@@ -173,6 +213,12 @@ def trial_row(number, energy, n, scores):
         "energy_measurement_source": energy.get("energy_source"),
         "device_smi_index": energy.get("device_smi_index"),
         "gpu_device_mapping": energy.get("gpu_mapping"),
+        "counter_to_integrated_power_ratio": energy.get(
+            "counter_to_integrated_power_ratio"),
+        "energy_reconciled_from_power_integration": energy.get(
+            "energy_reconciled_from_power_integration"),
+        "legacy_vram_mb_to_bytes_corrected": energy.get(
+            "legacy_vram_mb_to_bytes_corrected"),
         **scores,
     }
 
