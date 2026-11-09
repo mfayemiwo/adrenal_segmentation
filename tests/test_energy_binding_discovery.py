@@ -49,6 +49,42 @@ class AMDImportDiscoveryTests(unittest.TestCase):
         self.assertAlmostEqual(get_vram_bytes(Dummy(), None) / (1024 ** 3),
                                6.165355443954468, places=4)
 
+    def test_old_energy_trial_reconciles_legacy_vram_and_counter(self):
+        from scripts.run_nnunet_energy_suite import validated_existing_trial
+        old = {
+            "energy_j": 4900000.0,
+            "energy_counter_j": 4900000.0,
+            "power_integrated_j": 1500000.0,
+            "elapsed_s": 7600.0,
+            "peak_sampled_gpu_vram_bytes": 6620,
+            "peak_sampled_gpu_vram_gib": 6620 / 1024**3,
+        }
+        new = validated_existing_trial(old)
+        self.assertEqual(new["energy_j"], 1500000.0)
+        self.assertEqual(new["energy_source"],
+                         "trapezoid_power_samples_counter_disagreement")
+        self.assertTrue(new["energy_reconciled_from_power_integration"])
+        self.assertAlmostEqual(new["peak_sampled_gpu_vram_gib"],
+                               6620 * 1_000_000 / 1024**3)
+        self.assertEqual(old["energy_j"], 4900000.0)
+        self.assertAlmostEqual(old["peak_sampled_gpu_vram_gib"], 6620 / 1024**3)
+
+    def test_new_energy_trial_stays_unchanged_when_consistent(self):
+        from scripts.run_nnunet_energy_suite import validated_existing_trial
+        current = {
+            "energy_j": 49000.0,
+            "energy_counter_j": 49000.0,
+            "power_integrated_j": 50000.0,
+            "elapsed_s": 100.0,
+            "vram_usage_unit": "bytes (from AMD-SMI megabytes)",
+            "peak_sampled_gpu_vram_bytes": 6_620_000_000,
+            "peak_sampled_gpu_vram_gib": 6_620_000_000 / 1024**3,
+        }
+        new = validated_existing_trial(current)
+        self.assertEqual(new["energy_j"], 49000.0)
+        self.assertFalse(new["energy_reconciled_from_power_integration"])
+        self.assertFalse(new["legacy_vram_mb_to_bytes_corrected"])
+
     def test_direct_energy_uses_documented_microjoule_resolution(self):
         from scripts.measure_gpu_energy import get_energy_joules
         class Dummy:
