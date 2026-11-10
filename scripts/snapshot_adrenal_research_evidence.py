@@ -94,10 +94,8 @@ def inventory_prediction_dir(path: Path, hash_nifti: bool) -> dict:
 
 def write_snapshot(root: Path, out: Path, hash_checkpoint: bool,
                    hash_nifti: bool) -> dict:
-    if out.resolve() == root.resolve() or root.resolve() in out.resolve().parents:
-        # Normally out is *inside* root and this is OK; this check instead
-        # prevents recursively snapshotting the entire project as a source.
-        pass
+    if out.resolve() == root.resolve():
+        raise ValueError("Evidence snapshot cannot replace the project root")
     out.mkdir(parents=True, exist_ok=False)
     copied = []
     missing = []
