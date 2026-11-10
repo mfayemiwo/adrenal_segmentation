@@ -14,23 +14,25 @@
 # TotalSegmentator official test cases. No new training, model selection,
 # postprocessing, or inference-energy comparison.
 #
-# Must explicitly record that blinded annotation/provenance QC was undertaken
-# before submitting: sbatch --export=ALL,EXTERNAL_TEST_QC_SIGNOFF=1 ...
-# This flag is a human signoff, NOT automatic certification of label quality.
+# A blinded human annotation review and attestation is mandatory.
+# A standalone environment flag is deliberately insufficient: the local
+# gate must verify completed 15-case source-label QC, the frozen external
+# 76-case manifest and unchanged review files. This still supports ONLY
+# exploratory external evaluation, not clinical certification of 76 labels.
 set -Eeuo pipefail
 ROOT="${ADRENAL_PROJECT_ROOT:-/mnt/userapps/isrcdl_apps/mfayemiwo/DaisyProject/adrenal_segmentation}"
 cd "$ROOT"
-if [[ "${EXTERNAL_TEST_QC_SIGNOFF:-0}" != "1" ]]; then
-  echo "STOP: complete blinded external annotation QA, document decisions and " >&2
-  echo "then explicitly set EXTERNAL_TEST_QC_SIGNOFF=1 to authorize heldout evaluation." >&2
-  exit 2
-fi
 
 module load amd-rocm/rocm-6.3.3
 module load apps/python3/3.12.4/gcc-14.1.0
 module load compilers/gcc/14.1.0
 module load libs/gcc/14.1.0
 source .venv/bin/activate
+
+python -u scripts/validate_totalseg_v3_qc_review.py --verify-only || {
+  echo "STOP: no valid, unchanged human annotation review and external evaluation signoff." >&2
+  exit 2
+}
 
 CACHE_BASE="$ROOT/.hpc_cache/nnunet"
 mkdir -p "$CACHE_BASE"
@@ -90,5 +92,5 @@ fi
 python -u scripts/evaluate_totalseg_external_adrenal.py \
   --dataset-dir "$DATA" --pred-dir "$PRED" --output "$METRICS"
 
-echo "SUCCESS: external benchmark scored; results remain preliminary until QA signoff is filed."
+echo "SUCCESS: exploratory external benchmark scored after signed sampled-label review."
 echo "Summary: ${METRICS%.csv}.summary.json"
