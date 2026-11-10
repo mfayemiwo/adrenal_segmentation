@@ -54,3 +54,17 @@ Do NOT mix official TotalSegmentator test CTs into training. Do NOT change origi
 ## Recordkeeping obligations
 
 Every next model run needs commit SHA, source CT cohort and frozen IDs, split manifest, training seed/hyperparameters, SLURM ID, model checkpoint hash, test protocol, full-case score CSV, energy JSON/CSV and failure/anatomical QC notes. Update the evidence register and snapshot after each run, regardless of whether the result helps the hypothesis. Never invent a high Dice or SNN efficiency gain to support publication.
+
+## Current external CNN strategy update — 2026-11-10
+
+The investigator cancelled the signoff-gated external job and chose to **skip human source-label review** for the upcoming external test. Treat it as **exploratory unreviewed**. The original QC-gated script remains unchanged for later independent validation. To run the distinct frozen-cohort unreviewed job:
+
+```bash
+cd /mnt/userapps/isrcdl_apps/mfayemiwo/DaisyProject/adrenal_segmentation
+git pull --ff-only origin research/adrenaspike3d
+sbatch scripts/evaluate_totalseg_external_unreviewed.sbatch
+```
+
+Outputs: `runs/nnunet3d_external_tsv3_metrics_fold0_unreviewed.summary.json` and per-patient CSV, predictions `runs/nnunet3d_external_tsv3_predictions_fold0_unreviewed`, provenance `runs/nnunet3d_external_tsv3_unreviewed_provenance.json`. Do not imply manual source QA occurred. Do not tune architecture or postprocessing on this heldout cohort. Evaluate all 76 frozen cases regardless of score; after reading its results, continue CNN+SNN development on a separate internal training/validation cohort.
+
+See the latest `E11` in `docs/research_evidence_register_2026-11-10.md`.
