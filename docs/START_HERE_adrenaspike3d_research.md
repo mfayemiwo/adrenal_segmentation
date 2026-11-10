@@ -47,7 +47,7 @@ Next, prep the completely separate 76-case **external test only** input/label da
 sbatch scripts/prepare_totalseg_external_adrenal_test.sbatch
 ```
 
-This step does not run the model and does not touch the AMOS trained checkpoint. Evaluate it later with `scripts/evaluate_totalseg_external_adrenal.sbatch` **only after** independent annotation/provenance sign-off, recording explicitly `EXTERNAL_TEST_QC_SIGNOFF=1`. External results remain preliminary if the source QA status has not been cleared.
+This step does not run the model and does not touch the AMOS trained checkpoint. Evaluate it later with `scripts/evaluate_totalseg_external_adrenal.sbatch` **only after** independent source-label/provenance review and a valid signed QC gate from `scripts/validate_totalseg_v3_qc_review.py`. The GPU job now verifies the gate and blocks without it. See `docs/totalseg_v3_adrenal_annotation_qc_rubric.md` for the completed review CSV, attestation and correct commands. Sampled QC does not approve all 76 labels; external results remain exploratory until limitations are addressed.
 
 Do NOT mix official TotalSegmentator test CTs into training. Do NOT change original 100 AMOS heldout cohort. For Paper II's ACTS-3D, work on `research/acts3d-algorithm` separately; no branch-switching on a busy Paper I HPC checkout.
 
