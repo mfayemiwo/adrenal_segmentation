@@ -153,3 +153,16 @@ On Kelvin2 under the established project root, the three sequential CPU workflow
 - Commands/precise rubric: `docs/totalseg_v3_adrenal_annotation_qc_rubric.md`. Preserved originals are mandatory, including all negative/QUERY/REJECT judgements. Further decisions about expanded-data CNN training or SNN comparisons remain pending.
 
 **Decision:** Finish source-only image and label reviews and archive checksum verification before opening the exploratory external-test Dice. Do not add any of the 76 official test cases to training.
+
+## E11. Protocol deviation authorised — exploratory external evaluation without manual QA (10 November 2026)
+
+The investigator explicitly elected to **skip manual source-annotation QC for the next external CNN assessment** and cancelled the previously submitted signoff-gated Slurm job. Do not imply any human reviewer inspected or approved the 76 gland masks. This is a transparent change in evaluation scope, not proof of source label accuracy.
+
+New standalone job: `scripts/evaluate_totalseg_external_unreviewed.sbatch` (separate from and does NOT modify the reviewed job). It uses original immutable AMOS-only nnU-Net Dataset701 fold-0 checkpoint, the exact official TotalSegmentator v3 76-case bilateral external-test manifest, left=1/right=2, and no model retraining, tuning or postprocessing. Frozen inventory checksum, exact case count, CT symlink source, label ID mapping and original model SHA-256 are checked and recorded in:
+`runs/nnunet3d_external_tsv3_unreviewed_provenance.json`.
+
+Predictions: `runs/nnunet3d_external_tsv3_predictions_fold0_unreviewed/*.nii.gz`. Per-case metrics: `runs/nnunet3d_external_tsv3_metrics_fold0_unreviewed.csv`. Summary: `runs/nnunet3d_external_tsv3_metrics_fold0_unreviewed.summary.json`. **At time of writing no results are available.** Reconcile the actual Slurm job ID, Git SHA, timing, scores, failure denominators and uncertainties when output is received.
+
+Dataset annotations were mechanically audited but **not independently adjudicated**. This external test selection includes only 76/109 official test cases with bilateral nonempty reference masks; clinical/source annotation quality and true patient independence are unverified. The results are exploratory evidence of domain generalisation, *not* claims of clinical validation. As this external test is now being examined, it must remain a frozen benchmark: new architectural and hyperparameter selections must use development-only data, not the 76 external Dice scores. Preserve all 76, including low-Dice cases; no post hoc drops or cherry picking.
+
+The original signed-QC workflow remains available independently. The manual-QC bypass may not be described later as completed human quality review, nor should it erase the prior audit documentation.
