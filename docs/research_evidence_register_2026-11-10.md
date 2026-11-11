@@ -166,3 +166,32 @@ Predictions: `runs/nnunet3d_external_tsv3_predictions_fold0_unreviewed/*.nii.gz`
 Dataset annotations were mechanically audited but **not independently adjudicated**. This external test selection includes only 76/109 official test cases with bilateral nonempty reference masks; clinical/source annotation quality and true patient independence are unverified. The results are exploratory evidence of domain generalisation, *not* claims of clinical validation. As this external test is now being examined, it must remain a frozen benchmark: new architectural and hyperparameter selections must use development-only data, not the 76 external Dice scores. Preserve all 76, including low-Dice cases; no post hoc drops or cherry picking.
 
 The original signed-QC workflow remains available independently. The manual-QC bypass may not be described later as completed human quality review, nor should it erase the prior audit documentation.
+
+## E12. External TotalSegmentator v3 inference failure and orthogonal-NIfTI repair — 11 November 2026
+
+**Observed failure (not a Dice result):** the first exploratory `scripts/evaluate_totalseg_external_unreviewed.sbatch` job started nnU-Net inference for all 76 prepared TotalSegmentator v3 official test CTs but terminated in nnU-Net's SimpleITK NIfTI loader with:
+
+```text
+ITK ERROR: ITK only supports orthonormal direction cosines. No orthonormal definition found!
+RuntimeError: Background workers died
+```
+
+The user found **3 completed NIfTI predictions** in `runs/nnunet3d_external_tsv3_predictions_fold0_unreviewed/`, while the log had reached `tsv3_s0040`. The fourth scan's export may not have completed; the error involves CT spatial header geometry. The GPU job **did not complete**, the external metrics summary **does not exist**, and **no external Dice can be claimed**. Background-worker termination alone is not evidence of OOM. Do not re-submit the same unmodified failing script; keep its partial predictions and failure logs as experimental evidence.
+
+**Reproducible corrective protocol:** `scripts/repair_totalseg_external_ct_geometry.py`:
+- Preserve original 76 CT NIfTIs as supplied and the original 76 two-gland reference masks. No GT-derived bounding boxes, cropping or label-based interpolation to generate model inputs.
+- Run SimpleITK/ITK metadata-read preflight and orthogonality check on every CT. Symlink directly if the original header is readable and orientation orthogonal; otherwise linearly interpolate the **CT only** to an orthonormal RAS+ world grid at the physical original voxel-size magnitudes. Record every changed case and its before/after shape/affine in a local `geometry_manifest.json`.
+- Use unchanged original AMOS-only nnU-Net checkpoint Dataset701 fold0 to predict all 76 prepared CTs. Predictions and metadata are stored in **new directories**, never mixed with the failed run's 3 partial files.
+- Restore each prediction to the **original CT voxel grid** with nearest-neighbour label resampling (order 0) using physical NIfTI affines. For inputs that were symlinked unchanged, do not interpolate prediction masks at all.
+- Score the restored native-grid masks on all 76 original class-1-left/class-2-right reference labels with the same Dice, HD95, NSD evaluator as the original AMOS benchmark. No human source-label QC is claimed. Report geometry preparation protocol and number of affected cases in the manuscript's external-generalisation methods.
+
+CPU-only preparation: `scripts/prepare_totalseg_external_ct_geometry.sbatch` (64G, no GPU), output `nnunet_raw/ExternalTotalSegV3AdrenalOrtho_v1/geometry_manifest.json`.
+
+GPU inference and restoration: `scripts/run_totalseg_external_ortho_inference.sbatch` (MI300X), output:
+- prepared CT-space predictions `runs/nnunet3d_external_tsv3_ortho_predictions_fold0/`;
+- native CT-space predictions `runs/nnunet3d_external_tsv3_native_predictions_fold0/`;
+- external patient metrics `runs/nnunet3d_external_tsv3_metrics_fold0_ortho_native_unreviewed.csv`;
+- external summary `runs/nnunet3d_external_tsv3_metrics_fold0_ortho_native_unreviewed.summary.json`;
+- native geometry restoration evidence `runs/external_geometry_restore_summary.json`.
+
+Until both successor jobs finish and all cases are accounted for, no external performance has been measured. This is an engineering fix to ensure valid medical-image physical geometry, **not a new model architecture** and **not proof of SNN contribution**.
