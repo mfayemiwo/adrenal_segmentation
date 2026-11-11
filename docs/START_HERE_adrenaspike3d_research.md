@@ -68,3 +68,22 @@ sbatch scripts/evaluate_totalseg_external_unreviewed.sbatch
 Outputs: `runs/nnunet3d_external_tsv3_metrics_fold0_unreviewed.summary.json` and per-patient CSV, predictions `runs/nnunet3d_external_tsv3_predictions_fold0_unreviewed`, provenance `runs/nnunet3d_external_tsv3_unreviewed_provenance.json`. Do not imply manual source QA occurred. Do not tune architecture or postprocessing on this heldout cohort. Evaluate all 76 frozen cases regardless of score; after reading its results, continue CNN+SNN development on a separate internal training/validation cohort.
 
 See the latest `E11` in `docs/research_evidence_register_2026-11-10.md`.
+
+## Troubleshooting external CT NIfTI geometry — 2026-11-11
+
+The first `evaluate_totalseg_external_unreviewed.sbatch` **FAILED**, not scored:
+SimpleITK/ITK did not support orthonormal direction cosines in at least one original TotalSegmentator CT. Only 3/76 prediction masks exist and no summary was produced. Preserve these partial results and log, do not claim external Dice.
+
+**Repaired, tested 2-stage workflow:**
+
+```bash
+cd /mnt/userapps/isrcdl_apps/mfayemiwo/DaisyProject/adrenal_segmentation
+git pull --ff-only origin research/adrenaspike3d
+J1=$(sbatch --parsable scripts/prepare_totalseg_external_ct_geometry.sbatch)
+J2=$(sbatch --parsable --dependency=afterok:$J1 scripts/run_totalseg_external_ortho_inference.sbatch)
+echo "CT-only geometry repair job $J1; subsequent MI300X inference job $J2"
+```
+
+Read geometry summary `nnunet_raw/ExternalTotalSegV3AdrenalOrtho_v1/geometry_manifest.json`; restored native predictions `runs/nnunet3d_external_tsv3_native_predictions_fold0`; final summary `runs/nnunet3d_external_tsv3_metrics_fold0_ortho_native_unreviewed.summary.json`.
+
+Both newly authored scripts preserve the original 76 source CT/labels and AMOS model. Only CTs with nonorthogonal/ITK-incompatible headers are regridded into world RAS; output gland masks are mapped back to **original native CT geometry** with nearest-neighbor before scoring. Label masks do not influence CT-space inference preparation. Synthetic end-to-end CI test passed. This is still exploratory **unreviewed** external test evaluation with no architecture selection on its results. Detailed methods and original error are in E12 of the evidence register.
