@@ -13,6 +13,10 @@ on:
       - "scripts/evaluate_totalseg_external_adrenal.py"
       - "scripts/evaluate_totalseg_external_adrenal.sbatch"
       - "scripts/evaluate_totalseg_external_unreviewed.sbatch"
+      - "scripts/repair_totalseg_external_ct_geometry.py"
+      - "scripts/prepare_totalseg_external_ct_geometry.sbatch"
+      - "scripts/run_totalseg_external_ortho_inference.sbatch"
+      - "tests/test_totalseg_external_geometry.py"
       - "tests/test_external_totalseg_research.py"
       - "tests/test_totalseg_v3_qc_review_gate.py"
       - ".github/workflows/adrenal-external-research-checks.yml"
@@ -28,6 +32,10 @@ on:
       - "scripts/evaluate_totalseg_external_adrenal.py"
       - "scripts/evaluate_totalseg_external_adrenal.sbatch"
       - "scripts/evaluate_totalseg_external_unreviewed.sbatch"
+      - "scripts/repair_totalseg_external_ct_geometry.py"
+      - "scripts/prepare_totalseg_external_ct_geometry.sbatch"
+      - "scripts/run_totalseg_external_ortho_inference.sbatch"
+      - "tests/test_totalseg_external_geometry.py"
       - "tests/test_external_totalseg_research.py"
       - "tests/test_totalseg_v3_qc_review_gate.py"
       - ".github/workflows/adrenal-external-research-checks.yml"
@@ -49,8 +57,11 @@ jobs:
           bash -n scripts/prepare_totalseg_external_adrenal_test.sbatch
           bash -n scripts/evaluate_totalseg_external_adrenal.sbatch
           bash -n scripts/evaluate_totalseg_external_unreviewed.sbatch
-          python -m py_compile scripts/snapshot_adrenal_research_evidence.py scripts/plan_totalseg_v3_adrenal_qc.py scripts/render_totalseg_v3_adrenal_qc.py scripts/prepare_totalseg_external_adrenal_test.py scripts/evaluate_totalseg_external_adrenal.py scripts/validate_totalseg_v3_qc_review.py
+          bash -n scripts/prepare_totalseg_external_ct_geometry.sbatch
+          bash -n scripts/run_totalseg_external_ortho_inference.sbatch
+          python -m py_compile scripts/snapshot_adrenal_research_evidence.py scripts/plan_totalseg_v3_adrenal_qc.py scripts/render_totalseg_v3_adrenal_qc.py scripts/prepare_totalseg_external_adrenal_test.py scripts/evaluate_totalseg_external_adrenal.py scripts/validate_totalseg_v3_qc_review.py scripts/repair_totalseg_external_ct_geometry.py
       - name: Test frozen research QC and external evaluation pipeline
         run: |
           python -m unittest discover -s tests -p 'test_external_totalseg_research.py' -v
           python -m unittest discover -s tests -p 'test_totalseg_v3_qc_review_gate.py' -v
+          python -m unittest discover -s tests -p 'test_totalseg_external_geometry.py' -v
