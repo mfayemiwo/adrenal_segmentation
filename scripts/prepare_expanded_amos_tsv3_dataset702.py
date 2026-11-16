@@ -72,9 +72,7 @@ def assert_frozen_sources(manifest):
         "totalseg_candidate_csv": Path(sources["candidate_csv"]),
         "totalseg_full_case_audit": Path(sources["candidate_csv"]).parent / "case_audit.csv",
         "totalseg_meta_csv": Path(sources["totalseg_source"]) / "meta.csv",
-        "external_test_manifest": Path(
-            "nnunet_raw/ExternalTotalSegV3AdrenalTest_v1/external_test_manifest.json"
-        ),
+        "external_test_manifest": Path(sources["external_test_manifest"]),
     }
     for label, path in paths.items():
         if not path.is_file() or sha256(path) != old[label]:
