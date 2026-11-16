@@ -33,6 +33,18 @@ SMALL_FILES = [
     "runs/totalsegmentator_v3_audit/candidates_not_train_ready.csv",
     "runs/ct_overlap_screen/summary.json",
     "runs/ct_overlap_screen/candidate_overlap_pairs.csv",
+    # Follow-up exploratory cross-dataset baseline: full unreviewed 76-case
+    # external score CSV, geometry corrections and aggregate statistics.
+    "nnunet_raw/ExternalTotalSegV3AdrenalTest_v1/external_test_manifest.json",
+    "nnunet_raw/ExternalTotalSegV3AdrenalOrtho_v1/geometry_manifest.json",
+    "runs/external_geometry_restore_summary.json",
+    "runs/nnunet3d_external_tsv3_metrics_fold0_ortho_native_unreviewed.csv",
+    "runs/nnunet3d_external_tsv3_metrics_fold0_ortho_native_unreviewed.summary.json",
+    "runs/nnunet3d_external_tsv3_failure_audit_unreviewed.json",
+    "runs/nnunet3d_external_tsv3_unreviewed_provenance.json",
+    # Future Dataset702 input manifest and CT/label geometry diagnostics.
+    "runs/expanded_dataset702/plan.json",
+    "nnunet_raw/Dataset702_AMOSTotalSegAdrenalCT/geometry_manifest.json",
     "runs/energy_nnunet_fullvolume_repro/telemetry_probe.json",
     "runs/energy_nnunet_fullvolume_repro/nnunet_energy_summary.json",
     "runs/energy_nnunet_fullvolume_repro/nnunet_energy_trials.csv",
