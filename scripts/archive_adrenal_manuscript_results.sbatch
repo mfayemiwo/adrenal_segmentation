@@ -63,6 +63,39 @@ runs/totalsegmentator_v3_audit
 runs/ct_overlap_screen
 EOF
 
+# Optional completed external and later expanded-training evidence.
+# These sources may not exist in an early archive. Include original score
+# outputs and prediction masks without embedding any original patient CTs.
+for path in \
+  docs/START_HERE_adrenaspike3d_research.md \
+  scripts/repair_totalseg_external_ct_geometry.py \
+  scripts/report_external_tsv3_unreviewed.py \
+  scripts/freeze_expanded_amos_tsv3_manifest.py \
+  scripts/prepare_expanded_amos_tsv3_dataset702.py \
+  scripts/prepare_expanded_amos_tsv3_dataset702.sbatch \
+  scripts/preprocess_expanded_amos_tsv3_dataset702.sbatch \
+  scripts/install_dataset702_frozen_split.py \
+  scripts/train_expanded_amos_tsv3_dataset702.sbatch \
+  runs/nnunet3d_external_tsv3_metrics_fold0_ortho_native_unreviewed.csv \
+  runs/nnunet3d_external_tsv3_metrics_fold0_ortho_native_unreviewed.summary.json \
+  runs/nnunet3d_external_tsv3_failure_audit_unreviewed.json \
+  runs/nnunet3d_external_tsv3_unreviewed_provenance.json \
+  runs/external_geometry_restore_summary.json \
+  runs/nnunet3d_external_tsv3_predictions_fold0_unreviewed \
+  runs/nnunet3d_external_tsv3_ortho_predictions_fold0 \
+  runs/nnunet3d_external_tsv3_native_predictions_fold0 \
+  nnunet_raw/ExternalTotalSegV3AdrenalTest_v1/external_test_manifest.json \
+  nnunet_raw/ExternalTotalSegV3AdrenalTest_v1/labelsTs \
+  nnunet_raw/ExternalTotalSegV3AdrenalOrtho_v1/geometry_manifest.json \
+  runs/expanded_dataset702/plan.json \
+  nnunet_raw/Dataset702_AMOSTotalSegAdrenalCT/geometry_manifest.json \
+  nnunet_preprocessed/Dataset702_AMOSTotalSegAdrenalCT/splits_final.json \
+  nnunet_results/Dataset702_AMOSTotalSegAdrenalCT; do
+    if [[ -e "$path" ]]; then
+      printf '%s\n' "$path" >> "$LIST"
+    fi
+done
+
 while IFS= read -r path; do
   if [[ ! -e "$path" ]]; then
     echo "ERROR: required evidence source absent: $path" >&2
@@ -74,5 +107,5 @@ tar -cf "$ARCHIVE" --files-from="$LIST"
 sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
 du -h "$ARCHIVE"
 cat "$ARCHIVE.sha256"
-echo "SUCCESS: local research evidence archive created, including original weights and 300 NIfTI predictions."
+echo "SUCCESS: local archival snapshot created; includes original CNN baseline and available external/expanded research evidence."
 echo "NEXT: copy $ARCHIVE and $ARCHIVE.sha256 to approved independent institutional storage."
