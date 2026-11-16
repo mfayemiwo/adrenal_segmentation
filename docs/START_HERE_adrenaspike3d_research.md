@@ -87,3 +87,32 @@ echo "CT-only geometry repair job $J1; subsequent MI300X inference job $J2"
 Read geometry summary `nnunet_raw/ExternalTotalSegV3AdrenalOrtho_v1/geometry_manifest.json`; restored native predictions `runs/nnunet3d_external_tsv3_native_predictions_fold0`; final summary `runs/nnunet3d_external_tsv3_metrics_fold0_ortho_native_unreviewed.summary.json`.
 
 Both newly authored scripts preserve the original 76 source CT/labels and AMOS model. Only CTs with nonorthogonal/ITK-incompatible headers are regridded into world RAS; output gland masks are mapped back to **original native CT geometry** with nearest-neighbor before scoring. Label masks do not influence CT-space inference preparation. Synthetic end-to-end CI test passed. This is still exploratory **unreviewed** external test evaluation with no architecture selection on its results. Detailed methods and original error are in E12 of the evidence register.
+
+## Completed external test and next experimental phase — 2026-11-16
+
+The original AMOS-only nnU-Net CNN completed external testing **76/76** TotalSegmentator v3 official test CTs after CT-only affine fixes for **nine** incompatible CT inputs. **Mean bilateral Dice 0.6682536367697085** versus original AMOS holdout 100-case **0.8061840313892723** (different cohorts, unpaired). Original external mask annotations are **not manually checked**; full left/right HD95/NSD and bootstrap summary contents still need to be inspected at `runs/nnunet3d_external_tsv3_metrics_fold0_ortho_native_unreviewed.summary.json`. Source result, partial original failed inference and nine-case geometry evidence preserved in E12/E13 of the research register. No SNN efficiency claim yet.
+
+**New expanded-data CNN preparatory stage (no training submitted):**
+
+```bash
+cd /mnt/userapps/isrcdl_apps/mfayemiwo/DaisyProject/adrenal_segmentation
+git pull --ff-only origin research/adrenaspike3d
+python -u scripts/report_external_tsv3_unreviewed.py
+sbatch scripts/prepare_expanded_amos_tsv3_dataset702.sbatch
+```
+
+CPU preparation creates `runs/expanded_dataset702/plan.json` and `nnunet_raw/Dataset702_AMOSTotalSegAdrenalCT`, **never** overwriting Dataset701 or reading official test CTs for training. The frozen split is original AMOS train **200**, TS official train candidates **1053** split **895 train + 158 internal validation**, total **1253 raw imagesTr, 1095 fold0 training and 158 fold0 validation**. Original 100 AMOS holdout and all 109 official TotalSegmentator test cases remain untouched and excluded. The source masks are validated mechanically but **no clinical annotation quality review** has been completed.
+
+After the Dataset702 preparation log reports SUCCESS and separate folder sizes/storage use are verified, submit:
+
+```bash
+sbatch scripts/preprocess_expanded_amos_tsv3_dataset702.sbatch
+```
+
+This CPU-only job runs nnU-Net fingerprint/preprocessing and installs the frozen `splits_final.json`; it does not train. Only once that is confirmed, separately submit the MI300X job:
+
+```bash
+sbatch scripts/train_expanded_amos_tsv3_dataset702.sbatch
+```
+
+Model weights are isolated to `nnunet_results/Dataset702_AMOSTotalSegAdrenalCT`. Training may need SLURM resubmission to resume checkpoint. Do not use the observed external Dice to choose any model hyperparameters. Prepare matched C3 analog/C4 genuine 3D SNN refiners after developing a credible C2 expanded-data CNN using internal validation; preserve full-volume energy protocol and all failures.
