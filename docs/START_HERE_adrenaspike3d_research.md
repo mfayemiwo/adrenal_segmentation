@@ -116,3 +116,18 @@ sbatch scripts/train_expanded_amos_tsv3_dataset702.sbatch
 ```
 
 Model weights are isolated to `nnunet_results/Dataset702_AMOSTotalSegAdrenalCT`. Training may need SLURM resubmission to resume checkpoint. Do not use the observed external Dice to choose any model hyperparameters. Prepare matched C3 analog/C4 genuine 3D SNN refiners after developing a credible C2 expanded-data CNN using internal validation; preserve full-volume energy protocol and all failures.
+
+## Current queued jobs and external failure distribution — 2026-11-16
+
+Completed unreviewed external AMOS-only nnU-Net on 76/76 TotalSegmentator official-test bilateral cases:
+- **mean bilateral Dice 0.6682536367697084; sample SD 0.3021735302897953; median 0.8109285387468024**, left mean 0.6676954722695573, right mean 0.6688118012698596.
+- 16/76 bilateral Dice below 0.50; 11/76 below 0.20; 6/76 bilateral Dice exactly zero; 6/76 at least 0.90; 8 empty predicted left masks, 9 empty predicted right masks. Counts overlap. 9 regridded CTs had mean bilateral Dice 0.6671142014744535 (not a causal comparison).
+- Source complete `runs/nnunet3d_external_tsv3_failure_audit_unreviewed.json`, original 76-row `runs/nnunet3d_external_tsv3_metrics_fold0_ortho_native_unreviewed.csv`, and `runs/nnunet3d_external_tsv3_metrics_fold0_ortho_native_unreviewed.summary.json`. Data unreviewed, old evaluator physical HD95/NSD approximate for 9 sheared native grids. Full register E15 details.
+
+**Submitted SLURM jobs, completion unverified:**
+- `11026503`: `scripts/archive_adrenal_manuscript_results.sbatch` (back up raw paper evidence, including external Dice).
+- `11026504`: `scripts/prepare_expanded_amos_tsv3_dataset702.sbatch`, `afterok:11026503` dependency.
+
+Check `squeue -j 11026503,11026504` and `sacct -j 11026503,11026504 --format=JobID,JobName,State,ExitCode,Elapsed`. The full new dataset is NOT prepared until Dataset702 output reports SUCCESS. Only then submit CPU-only `scripts/preprocess_expanded_amos_tsv3_dataset702.sbatch`. The final GPU training job `scripts/train_expanded_amos_tsv3_dataset702.sbatch` must wait for fold0 preprocessing and installation. External observed scores must not drive model selection.
+
+Original 3-run GPU socket energy baseline remains **49.319 ± 0.157 kJ/full AMOS CT**, latency **76.563 ± 0.057 s/full AMOS CT**; no matched full-volume SNN energy study yet.
