@@ -22,6 +22,9 @@ on:
       - "scripts/freeze_expanded_amos_tsv3_manifest.py"
       - "scripts/prepare_expanded_amos_tsv3_dataset702.sbatch"
       - "scripts/report_external_tsv3_unreviewed.py"
+      - "scripts/install_dataset702_frozen_split.py"
+      - "scripts/preprocess_expanded_amos_tsv3_dataset702.sbatch"
+      - "scripts/train_expanded_amos_tsv3_dataset702.sbatch"
       - "tests/test_external_totalseg_research.py"
       - "tests/test_totalseg_v3_qc_review_gate.py"
       - ".github/workflows/adrenal-external-research-checks.yml"
@@ -46,6 +49,9 @@ on:
       - "scripts/freeze_expanded_amos_tsv3_manifest.py"
       - "scripts/prepare_expanded_amos_tsv3_dataset702.sbatch"
       - "scripts/report_external_tsv3_unreviewed.py"
+      - "scripts/install_dataset702_frozen_split.py"
+      - "scripts/preprocess_expanded_amos_tsv3_dataset702.sbatch"
+      - "scripts/train_expanded_amos_tsv3_dataset702.sbatch"
       - "tests/test_external_totalseg_research.py"
       - "tests/test_totalseg_v3_qc_review_gate.py"
       - ".github/workflows/adrenal-external-research-checks.yml"
@@ -70,7 +76,9 @@ jobs:
           bash -n scripts/prepare_totalseg_external_ct_geometry.sbatch
           bash -n scripts/run_totalseg_external_ortho_inference.sbatch
           bash -n scripts/prepare_expanded_amos_tsv3_dataset702.sbatch
-          python -m py_compile scripts/snapshot_adrenal_research_evidence.py scripts/plan_totalseg_v3_adrenal_qc.py scripts/render_totalseg_v3_adrenal_qc.py scripts/prepare_totalseg_external_adrenal_test.py scripts/evaluate_totalseg_external_adrenal.py scripts/validate_totalseg_v3_qc_review.py scripts/repair_totalseg_external_ct_geometry.py scripts/freeze_expanded_amos_tsv3_manifest.py scripts/prepare_expanded_amos_tsv3_dataset702.py scripts/report_external_tsv3_unreviewed.py
+          bash -n scripts/preprocess_expanded_amos_tsv3_dataset702.sbatch
+          bash -n scripts/train_expanded_amos_tsv3_dataset702.sbatch
+          python -m py_compile scripts/snapshot_adrenal_research_evidence.py scripts/plan_totalseg_v3_adrenal_qc.py scripts/render_totalseg_v3_adrenal_qc.py scripts/prepare_totalseg_external_adrenal_test.py scripts/evaluate_totalseg_external_adrenal.py scripts/validate_totalseg_v3_qc_review.py scripts/repair_totalseg_external_ct_geometry.py scripts/freeze_expanded_amos_tsv3_manifest.py scripts/prepare_expanded_amos_tsv3_dataset702.py scripts/report_external_tsv3_unreviewed.py scripts/install_dataset702_frozen_split.py
       - name: Test frozen research QC and external evaluation pipeline
         run: |
           python -m unittest discover -s tests -p 'test_external_totalseg_research.py' -v
