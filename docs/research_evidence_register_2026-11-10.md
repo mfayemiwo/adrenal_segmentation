@@ -239,3 +239,27 @@ Freeze script `scripts/freeze_expanded_amos_tsv3_manifest.py`: creates a non-ove
 **Benchmark methodology:** compare C0 AMOS-only nnU-Net to C2 new expanded CNN on the same frozen full-volume evaluation data; assess whether new data helps AMOS as well as TotalSegmentator and look for domain imbalance. Must report that C2 has *more training cases*, not architectural superiority. Use the internal 158 TotalSegmentator development validation CTs for model selection only. Then develop C3 matched analog refiner and C4 genuine 3D SNN refiner with identical C2 backbone, full-volume CT and same ROI proposals/input information; energy protocol applies whole-subprocess MI300X GPU socket Joules, latency and VRAM. Do not claim useful SNN until matched-control quantitative results exist.
 
 **Current status:** scripts are version-controlled, CPU synthetic tests verify split disjointness and sheared source CT-mask resampling. **No Dataset702 HPC preparation/preprocessing/train job has been reported as run yet, and no expanded-data Dice or SNN results are available.**
+
+
+## E15. Completed 76-case external Dice distribution and queued data-preparation jobs — 16 November 2026
+
+The user executed `python -u scripts/report_external_tsv3_unreviewed.py` against the original full 76-case CSV and the original CT geometry manifest. It returned `DESCRIPTIVE_COMPLETE_NO_MODEL_TUNING` and wrote `runs/nnunet3d_external_tsv3_failure_audit_unreviewed.json`. **Actual source findings, no synthetic examples:**
+
+| Measure | n | Mean | Sample SD | Median | Min | Max |
+|---|---:|---:|---:|---:|---:|---:|
+| Per-patient bilateral Dice | 76 | **0.6682536367697084** | **0.3021735302897953** | **0.8109285387468024** | 0.0 | 0.93683284457478 |
+| Left adrenal Dice | 76 | **0.6676954722695573** | **0.3174164430486637** | **0.8313004175532428** | 0.0 | 0.9381818181818182 |
+| Right adrenal Dice | 76 | **0.6688118012698596** | **0.3156895449131599** | **0.8175679034754972** | 0.0 | 0.9425562470081379 |
+
+Failure and high-score distribution: 11/76 bilateral Dice below 0.20; 16/76 below 0.50; 6/76 exactly zero; 6/76 at least 0.90; 8 left-gland prediction masks empty; 9 right-gland prediction masks empty. **These counts overlap** (do not sum into a total failure count). Larger median than mean indicates a severe lower tail of failures rather than uniformly middling predictions. Differential causes are **unproven** (missing glands, laterality/coverage, label source and acquisition variation may contribute). No case has been removed or selected for model tuning.
+
+Nine original nonorthonormal/sheared CTs repaired for inference: bilateral Dice within that subgroup **n=9, mean 0.6671142014744535, sample SD 0.35284947825308444, median 0.840556223534947, minimum 0, maximum 0.8710121647669904**. The subgroup average resembles the overall average but cannot establish equivalence or a causal conclusion. All 9 included in 76-case mean. For the sheared cases, the original evaluator's HD95/NSD voxel-spacing metric does not fully model sheared world-space distances: disclose this limitation and pursue physically affine-correct surface metrics before publication.
+
+The complete 76-case patient audit remains in `runs/nnunet3d_external_tsv3_failure_audit_unreviewed.json`, the underlying immutable per-patient CSV in `runs/nnunet3d_external_tsv3_metrics_fold0_ortho_native_unreviewed.csv` and the original full scores with bootstrap confidence intervals in `runs/nnunet3d_external_tsv3_metrics_fold0_ortho_native_unreviewed.summary.json` (still to be copied to chat for precise HD95/NSD/CI reporting).
+
+**Research archive and Dataset702 preparation accepted by Kelvin2 SLURM:**
+- Evidence backup submission **job 11026503**, `scripts/archive_adrenal_manuscript_results.sbatch`.
+- Dataset702 candidate input preparation submission **job 11026504**, `scripts/prepare_expanded_amos_tsv3_dataset702.sbatch`, dependency `afterok:11026503`.
+- The user confirmed *submission*, **NOT completion** of either job. Do not call Dataset702 prepared, trained, or evaluated until verified by output logs and frozen manifests. All results remain under `/mnt/userapps/isrcdl_apps/mfayemiwo/DaisyProject/adrenal_segmentation`; user-controlled backup transfer to approved independent storage still necessary.
+
+**Design consequence:** Dataset702 training may help, but Dice >0.90 is unachieved, and no matched spiking/analog benefit has been measured. These external results are descriptive; they must not drive parameter selection or retroactive test exclusions. Primary next analysis is development-only generalisation/accuracy plus balanced analog/SNN comparison.
