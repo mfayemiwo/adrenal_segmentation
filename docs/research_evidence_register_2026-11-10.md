@@ -212,3 +212,30 @@ Source evidence reported by investigator from completed Kelvin2 job:
 **Interpretation and boundaries:** Generalisation of the original AMOS-only CNN is substantially worse on the distinct TotalSegmentator external cohort; causes not established (scanner, patient mix, annotation conventions, gland visibility, geometry effects possible). Nine geometry-repaired cases MUST be retained in whole-cohort reporting. The TotalSegmentator test subset contains **76/109** official test cases selected by presence of bilateral source annotations: report the parent denominator and any selection bias, never silently represent the 76 as all official tests. External labels were not manually quality checked and source overlap screen is heuristic, not proof of patient independence. Do not fit architecture/postprocessing/thresholds or select the best training run using these 76 external Dice scores. A Dice exceeding 0.90 has **not** been achieved by this model.
 
 **Action:** Preserve every raw per-patient value, summary JSON, both 76-mask directories, geometry manifest, Slurm logs and failed first run as protected on-HPC evidence plus approved institutional backup. Internal training/validation decisions for the next enlarged-data CNN and matched analog/SNN models must be fixed using training-split-only data, independent of these 76 scores.
+
+
+## E14. Prospective exploratory expanded-data CNN development, 16 November 2026 — code ready; no new model trained
+
+After completion of the 76-case external test with bilateral Dice **0.6682536367697085**, the investigator and team maintain the *previously stated* plan to add TotalSegmentator **official training** images to improve CT-domain generalisation and aim for full-volume Dice >0.90. **This is a new planned experiment, NOT evidence of a performance gain.** The external test has already been observed and must not be treated as model-development validation.
+
+**New independent nnU-Net dataset namespace:** `Dataset702_AMOSTotalSegAdrenalCT` under `/mnt/userapps/isrcdl_apps/mfayemiwo/DaisyProject/adrenal_segmentation/nnunet_raw/`. The original `Dataset701_AMOSAdrenalCT` and its 100 CT heldout scans and checkpoint are untouched.
+
+Freeze script `scripts/freeze_expanded_amos_tsv3_manifest.py`: creates a non-overwriting local `runs/expanded_dataset702/plan.json`, seeded **20261116**. Frozen split expected:
+- Original **200 AMOS `imagesTr`**: all 200 used in fold0 training; **none** of the 100 original `imagesVa` included in this dataset.
+- TotalSegmentator official **train** with both nonempty binary affine-aligned adrenal masks: **1053** candidate CTs, of which **895** used in fold0 development training and **158** held out as fold0 internal validation, deterministic site-stratified sample at 15% using no external model scores.
+- Overall **1253** imagesTr (train+internal validation), fold0 **1095 train** and **158 validation**.
+- All **109 TotalSegmentator official test** cases excluded from training, including the fixed 76 bilateral-labelled external test and 33 other official test cases. All original 100 AMOS heldout excluded.
+
+**Automated source-label QC ONLY:** the 1053 TotalSegmentator masks are candidate annotations from the dataset audit, not clinically verified. The user elected to skip manual review; any manuscript accuracy statements must declare annotation provenance and limitations. No label-derived crop, no test-case removal, no training from external labels.
+
+**Geometry and binary label conversion:** `scripts/prepare_expanded_amos_tsv3_dataset702.py` reuses AMOS original training image/label symlinks. For each TS candidate it checks left/right binary masks, source CT/label alignment, nonzero gland masks and no class overlap; symlinks a valid CT or linearly regrids a sheared CT to orthonormal physical coordinates, applying **nearest-neighbour** spatial resampling to both source adrenal masks on that same grid. Neither original source CT nor annotation files are modified. Any invalid mask or impossible geometry leads to an explicit failure; no cases silently excluded. Intermediate outputs resume after walltime; a manifest is frozen.
+
+**Preparation and training scripts (code committed, no results yet):**
+- `scripts/prepare_expanded_amos_tsv3_dataset702.sbatch`: CPU-only freeze/prepare 1253 cases, `runs/expanded_dataset702/plan.json`, `nnunet_raw/Dataset702_AMOSTotalSegAdrenalCT/geometry_manifest.json`, aligned labels and original CT symlinks/resampled files.
+- `scripts/preprocess_expanded_amos_tsv3_dataset702.sbatch`: CPU-only nnU-Net 3D fullres preparation and `scripts/install_dataset702_frozen_split.py` to write immutable `nnunet_preprocessed/Dataset702_AMOSTotalSegAdrenalCT/splits_final.json`.
+- `scripts/train_expanded_amos_tsv3_dataset702.sbatch`: independent MI300X checkpoint-resumable 3D nnU-Net fold0, no automatic external test evaluation.
+- `scripts/report_external_tsv3_unreviewed.py`: descriptive 76-case result audit (mean/SD Dice sides, zero/low scores, 9 geometry subgroup) with all denominators and no test tuning. This is a diagnostic manuscript artifact, not a training criterion.
+
+**Benchmark methodology:** compare C0 AMOS-only nnU-Net to C2 new expanded CNN on the same frozen full-volume evaluation data; assess whether new data helps AMOS as well as TotalSegmentator and look for domain imbalance. Must report that C2 has *more training cases*, not architectural superiority. Use the internal 158 TotalSegmentator development validation CTs for model selection only. Then develop C3 matched analog refiner and C4 genuine 3D SNN refiner with identical C2 backbone, full-volume CT and same ROI proposals/input information; energy protocol applies whole-subprocess MI300X GPU socket Joules, latency and VRAM. Do not claim useful SNN until matched-control quantitative results exist.
+
+**Current status:** scripts are version-controlled, CPU synthetic tests verify split disjointness and sheared source CT-mask resampling. **No Dataset702 HPC preparation/preprocessing/train job has been reported as run yet, and no expanded-data Dice or SNN results are available.**
