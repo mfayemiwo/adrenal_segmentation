@@ -215,6 +215,7 @@ def generate_plan(amos_dir: Path, ts_root: Path, candidates_path: Path,
             "amos_dataset701": str(amos_dir.resolve()),
             "totalseg_source": str(ts_root.resolve()),
             "candidate_csv": str(candidates_path.resolve()),
+            "external_test_manifest": str(external_path.resolve()),
         },
         "sha256_sources": {
             "amos_split_manifest": sha(amos_dir / "split_manifest.json"),
