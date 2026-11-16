@@ -27,12 +27,14 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import sys
 
 import nibabel as nib
 from nibabel.processing import resample_from_to
 import numpy as np
 
-from repair_totalseg_external_ct_geometry import (
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from scripts.repair_totalseg_external_ct_geometry import (
     isitk_readable, orthonormal_error, orthogonalize, sha256,
 )
 
