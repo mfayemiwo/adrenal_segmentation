@@ -143,3 +143,26 @@ Original AMOS-only Dataset701 nnU-Net model on **all 76 TotalSegmentator v3 offi
 - Queued but not confirmed completed: archival job **11026503**, dependent Dataset702 CPU preparation job **11026504**. Do not claim new training/validation has finished.
 
 No achieved external score >0.90 in mean Dice and no full-volume SNN-vs-analog energy benefit is measured yet.
+
+
+## Dataset702 COMPLETE source preparation and new safe nnU-Net CPU preprocessing (2026-11-17)
+
+User-confirmed Kelvin2 job `11026504` output: **`SUCCESS: Dataset702 has 1253 development cases; 1095 fold0 train and 158 fold0 val`**. Original AMOS 200 source training and 1053 TotalSegmentator official training candidates prepared only. All original 100 AMOS heldout and 109 TotalSegmentator official tests excluded. Dataset preparation complete, model **NOT TRAINED**.
+
+IMPORTANT: original `scripts/preprocess_expanded_amos_tsv3_dataset702.sbatch` was corrected before first preprocessing run. Upstream `nnUNetv2_preprocess` invokes `DefaultPreprocessor.run`, which **deletes the existing output directory before rebuilding it**, making resubmission destructive. The new SBATCH uses `nnUNetv2_plan_and_preprocess --no_pp` for planning only (if not yet done) and `scripts/resume_nnunet702_preprocessing.py` for CPU-based **individual, atomically checkpointed cases**. Completed volumes are retained across 24-hour SLURM limits. If the job exits **3**, it intentionally preserved cases before reaching its deadline and must be resubmitted unchanged. Do NOT use the original manual combined nnUNet plan-and-preprocess command again on partially completed Dataset702.
+
+```bash
+cd /mnt/userapps/isrcdl_apps/mfayemiwo/DaisyProject/adrenal_segmentation
+git pull --ff-only origin research/adrenaspike3d
+sbatch scripts/preprocess_expanded_amos_tsv3_dataset702.sbatch
+```
+
+Check progress using:
+```bash
+find nnunet_preprocessed/Dataset702_AMOSTotalSegAdrenalCT/nnUNetPlans_3d_fullres \
+  -maxdepth 1 -name '*.pkl' | wc -l
+grep -E 'INITIAL_INVENTORY|resume-preprocess|CHECKPOINT|SUCCESS|ERROR|STOP' dataset702_preprocess.*.out | tail -30
+```
+Expected final `.pkl` case count **1253**, plus source label copies, sampling-location metadata, `splits_final.json` **1095/158**, and a final `SUCCESS` message. If the job stops at walltime, submit the same SBATCH again (no re-preprocessing of valid completed CTs). The script requests 16 CPU cores, 192GB RAM and runs 4 nnU-Net workers by default; `NN702_WORKERS=2` can be supplied for lower RAM pressure. The MI300X GPU is reserved for subsequent fullres `scripts/train_expanded_amos_tsv3_dataset702.sbatch`. No GPU speedup is assumed for CPU-only ITK/NumPy preprocessing.
+
+See `docs/research_evidence_register_2026-11-10.md` E17 for design and source audit.
