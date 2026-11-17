@@ -312,3 +312,18 @@ Historical cross-dataset comparison (different populations, unpaired): AMOS 100-
 **Rationale for CPU vs GPU:** standard nnU-Net v2 fingerprint extraction, planning and preprocessing use CPU-oriented ITK/NumPy/resampling/compression and multiprocessing; requesting MI300X would not automatically accelerate these functions. GPU-specific preprocessing would require a separately validated alternative numerical pipeline and would not be the unmodified baseline. 24h limit may still require multiple CPU job allocations; now work survives time limits without restarting from case 1.
 
 **Research status at this update:** Dataset702 source dataset prepared, no completed preprocessing or trained expanded-data CNN reported, no 3D SNN/analog matched-control results. Original full-volume AMOS and 76-case external results and failure-count evidence remain preserved in E01–E16.
+
+
+## E18. Dataset702 checkpointed full-resolution preprocessing COMPLETE — 17 November 2026
+
+**Investigator-reported Kelvin2 log evidence:** the checkpoint-safe `scripts/preprocess_expanded_amos_tsv3_dataset702.sbatch` job finished with all **1,253/1,253** original Dataset702 `gt_segmentations` reference masks copied and verified; `legacy class_locations` checked for all **1,253** nnU-Net per-case properties; `scripts/install_dataset702_frozen_split.py` returned `status: SUCCESS`, `action: installed`, `fold: 0`, `train_count: 1095`, `val_count: 158`.
+
+Final stdout explicitly reported: `SUCCESS: all 1253 Dataset702 fullres cases preprocessed, original GT copied, foreground sampling locations ready, and 1095/158 fold0 installed.` There was no final error in the supplied log. Frozen split location:
+
+`/mnt/userapps/isrcdl_apps/mfayemiwo/DaisyProject/adrenal_segmentation/nnunet_preprocessed/Dataset702_AMOSTotalSegAdrenalCT/splits_final.json`
+
+Source images and labels: `nnunet_raw/Dataset702_AMOSTotalSegAdrenalCT/`, as frozen before preprocessing. Original Dataset701 trained model and 100-case holdout remain untouched. All 109 TotalSegmentator official test CTs remain outside Dataset702. The 1,053 TotalSegmentator training reference masks underwent automatic integrity checks only, with **no human adjudication**.
+
+**Stage status: completed CPU preprocessing and validation split installation; Dataset702 MI300X training NOT YET REPORTED.** The next action is separate GPU job `scripts/train_expanded_amos_tsv3_dataset702.sbatch`. It uses `nnUNetv2_train 702 3d_fullres 0 -device cuda` (CUDA compatibility under AMD ROCm), GPU partition `k2-gpu-amd`, MI300X 1x, 16 CPU cores, 96GB host memory, 72-hour allocation, checkpoint-latest resume with `--c`, and isolated output under `nnunet_results/Dataset702_AMOSTotalSegAdrenalCT/nnUNetTrainer__nnUNetPlans__3d_fullres/fold_0/`. Training should **not** yet be described as producing improved Dice or any SNN advantage. Training/validation metrics must be evaluated before optional frozen test-set benchmark comparison. Model selection and architecture tuning must rely on the frozen internal 158 development cases, not previously inspected 76 external-test Dice.
+
+**Handoff instructions:** `cd /mnt/userapps/isrcdl_apps/mfayemiwo/DaisyProject/adrenal_segmentation && git pull --ff-only origin research/adrenaspike3d && sbatch scripts/train_expanded_amos_tsv3_dataset702.sbatch`. Preserve training logs, checkpoint hashes, configuration, training plots, nnU-Net validation predictions and all failures. Do not run original `nnUNetv2_plan_and_preprocess` without `--no_pp` on completed Dataset702.
