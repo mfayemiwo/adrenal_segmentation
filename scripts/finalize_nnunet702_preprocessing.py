@@ -19,6 +19,7 @@ from pathlib import Path
 import shutil
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts.resume_nnunet702_preprocessing import required_case_files, sha256
 
 
