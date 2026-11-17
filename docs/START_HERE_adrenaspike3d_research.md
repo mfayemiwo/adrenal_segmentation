@@ -131,3 +131,15 @@ Completed unreviewed external AMOS-only nnU-Net on 76/76 TotalSegmentator offici
 Check `squeue -j 11026503,11026504` and `sacct -j 11026503,11026504 --format=JobID,JobName,State,ExitCode,Elapsed`. The full new dataset is NOT prepared until Dataset702 output reports SUCCESS. Only then submit CPU-only `scripts/preprocess_expanded_amos_tsv3_dataset702.sbatch`. The final GPU training job `scripts/train_expanded_amos_tsv3_dataset702.sbatch` must wait for fold0 preprocessing and installation. External observed scores must not drive model selection.
 
 Original 3-run GPU socket energy baseline remains **49.319 ± 0.157 kJ/full AMOS CT**, latency **76.563 ± 0.057 s/full AMOS CT**; no matched full-volume SNN energy study yet.
+
+## Full external distance metrics and CI, reported 2026-11-17
+
+Original AMOS-only Dataset701 nnU-Net model on **all 76 TotalSegmentator v3 official-test bilateral-labelled CTs**, exploratory (source labels unreviewed):
+- Mean left Dice **0.6676954722695573**, right **0.6688118012698595**, bilateral **0.6682536367697085**, each **76/76**.
+- 95% patient bootstrap CI, n=76/10k draws/seed=20261110: left **[0.5939310002957708, 0.7370892077674296]**; right **[0.5967355321176755, 0.7364344924941189]**; bilateral **[0.5989608291793763, 0.7332477808211579]**.
+- Left HD95 **9.42723013920646 mm (68/76 defined)**; right HD95 **3.24714968569406 mm (67/76 defined)**. Left NSD@2mm **0.8308720085785088 (68/76)**; right **0.8741154443036228 (67/76)**.
+- Empty predictions: left **8**, right **9** (boundary metrics NaN; Dice remains 0 for completely absent gland predictions). Nine original sheared affine cases require corrected world-space boundary-distance verification before final paper reporting; original Dice scores are on matched native voxel grids.
+- The original exact summary file lives at `runs/nnunet3d_external_tsv3_metrics_fold0_ortho_native_unreviewed.summary.json`. All definitive values also stored in E16 of `docs/research_evidence_register_2026-11-10.md`.
+- Queued but not confirmed completed: archival job **11026503**, dependent Dataset702 CPU preparation job **11026504**. Do not claim new training/validation has finished.
+
+No achieved external score >0.90 in mean Dice and no full-volume SNN-vs-analog energy benefit is measured yet.
