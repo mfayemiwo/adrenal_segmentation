@@ -22,8 +22,11 @@ on:
       - "scripts/freeze_expanded_amos_tsv3_manifest.py"
       - "scripts/prepare_expanded_amos_tsv3_dataset702.sbatch"
       - "scripts/report_external_tsv3_unreviewed.py"
-      - "scripts/install_dataset702_frozen_split.py"
+      - "scripts/install_dataset702_frozen_split.py scripts/resume_nnunet702_preprocessing.py scripts/finalize_nnunet702_preprocessing.py"
       - "scripts/preprocess_expanded_amos_tsv3_dataset702.sbatch"
+      - "scripts/resume_nnunet702_preprocessing.py"
+      - "scripts/finalize_nnunet702_preprocessing.py"
+      - "tests/test_dataset702_preprocessing_resume.py"
       - "scripts/train_expanded_amos_tsv3_dataset702.sbatch"
       - "tests/test_external_totalseg_research.py"
       - "tests/test_totalseg_v3_qc_review_gate.py"
@@ -51,6 +54,9 @@ on:
       - "scripts/report_external_tsv3_unreviewed.py"
       - "scripts/install_dataset702_frozen_split.py"
       - "scripts/preprocess_expanded_amos_tsv3_dataset702.sbatch"
+      - "scripts/resume_nnunet702_preprocessing.py"
+      - "scripts/finalize_nnunet702_preprocessing.py"
+      - "tests/test_dataset702_preprocessing_resume.py"
       - "scripts/train_expanded_amos_tsv3_dataset702.sbatch"
       - "tests/test_external_totalseg_research.py"
       - "tests/test_totalseg_v3_qc_review_gate.py"
@@ -85,3 +91,4 @@ jobs:
           python -m unittest discover -s tests -p 'test_totalseg_v3_qc_review_gate.py' -v
           python -m unittest discover -s tests -p 'test_totalseg_external_geometry.py' -v
           python -m unittest discover -s tests -p 'test_expanded_dataset702_safety.py' -v
+          python -m unittest discover -s tests -p 'test_dataset702_preprocessing_resume.py' -v
