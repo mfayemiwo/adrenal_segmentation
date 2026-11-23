@@ -335,3 +335,23 @@ The investigator reported **"the job is done"** after submitting `scripts/train_
 Verify output under `nnunet_results/Dataset702_AMOSTotalSegAdrenalCT/nnUNetTrainer__nnUNetPlans__3d_fullres/fold_0/`. Check for nonempty `checkpoint_final.pth` versus `checkpoint_latest.pth`, stdout `SUCCESS: expanded-data nnU-Net Dataset702 fold0 finished.`, and nnU-Net validation results `summary.json` (location/version dependent). Inspect `nnunet702_expanded.*.out` and `.err`, SLURM `sacct` and run duration. If only a resumable checkpoint exists, the existing training script uses `--c` on a second submission. Never overwrite or mix the original Dataset701 checkpoint, and never claim an achieved training or external Dice without examining actual metric evidence.
 
 Next **only after confirmation**: preserve final model hash/config and all internal 158-case validation scores. Use internal development scores for architecture and model selection; do not select a model on previously inspected TotalSegmentator 76-case official-test Dice. Prepare a matched full-volume analog vs SNN refinement and per-run energy benchmarking; no SNN benefit has yet been demonstrated. All files stay beneath `/mnt/userapps/isrcdl_apps/mfayemiwo/`.
+
+## E20. Expanded-data Dataset702 nnU-Net 3D training completed; internal validation score — 20 November 2026 (reported 23 Nov)
+
+**PRIMARY SOURCE:** Investigator supplied final stdout/stderr and filesystem listing from finished Kelvin2 `scripts/train_expanded_amos_tsv3_dataset702.sbatch`. **Outcome: SUCCESS**, separate full-volume 3D nnU-Net fold0 trained on frozen **Dataset702** (1095 development training / 158 internal validation). Original AMOS-trained Dataset701 remains unchanged.
+
+Last 2026-11-20 stdout events:
+- `2026-11-20 17:10:22.619613: Validation complete`
+- `2026-11-20 17:10:22.620871: Mean Validation Dice:  0.8527264539063969`
+- `SUCCESS: expanded-data nnU-Net Dataset702 fold0 finished.`
+- Training log file: `nnunet_results/Dataset702_AMOSTotalSegAdrenalCT/nnUNetTrainer__nnUNetPlans__3d_fullres/fold_0/training_log_2026_11_18_14_05_38.txt`
+- Full internal validation summary: `nnunet_results/Dataset702_AMOSTotalSegAdrenalCT/nnUNetTrainer__nnUNetPlans__3d_fullres/fold_0/validation/summary.json` (file existence user-confirmed; **contents not yet inspected**).
+- Best checkpoint: `nnunet_results/Dataset702_AMOSTotalSegAdrenalCT/nnUNetTrainer__nnUNetPlans__3d_fullres/fold_0/checkpoint_best.pth`, **239M** shown by `ls -lh`, last modified **2026-11-20 15:53**.
+- Final checkpoint: same folder `checkpoint_final.pth`, **239M**, last modified **2026-11-20 16:11**.
+- `progress.png` exists, plus validation folder. SHA-256 of checkpoints and SLURM exit/job ID **not yet provided**.
+
+**Precision:** `0.8527264539063969` is nnU-Net's own `Mean Validation Dice` from the full fold-0 validation pass. The exact aggregation (foreground-class mean, aggregate or patient macro) and per-class left/right means must be checked against `validation/summary.json` **before making manuscript claims of patient-level Dice**. This result is not a 100-case AMOS holdout or a 76-case TotalSegmentator external score, and the original model results (**AMOS 0.8061840313892723**, external 76-case **0.6682536367697085**) are from different cohorts. **Do not present the numerical gap as a matched/paired improvement or evidence of external generalisation.**
+
+**ROCm warnings:** last stdout contained repeated `GridwiseOp: Problemsize descriptor dimension check failure` messages, and stderr repeated `Workspace for DeviceGroupedConvBwdWeightTwoStage_Xdl_CShuffle::Argument is not allocated`. These are kernel/runtime warnings in a job that nevertheless finished validation, wrote both checkpoints and printed SUCCESS. Preserve logs and mention if they recur or cause reproducibility problems; no error is established by the shown tail alone.
+
+**Next concrete evidence needed:** inspect `validation/summary.json` to confirm number of cases, left vs right Dice, IoU and any per-case low/zero scores; obtain `sha256sum checkpoint_best.pth checkpoint_final.pth`, corresponding Git SHA/SLURM exit, and archive both checkpoints, training logs, final validation JSON and predictions. Use development validation only for model selection. Preserve the predeclared external test untouched for final comparative benchmarking with no post hoc threshold or architecture tuning. Actual 3D spiking versus matched analog experiments still **not performed** and no SNN accuracy/energy improvement has been demonstrated.
