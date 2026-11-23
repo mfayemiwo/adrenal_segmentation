@@ -166,3 +166,24 @@ grep -E 'INITIAL_INVENTORY|resume-preprocess|CHECKPOINT|SUCCESS|ERROR|STOP' data
 Expected final `.pkl` case count **1253**, plus source label copies, sampling-location metadata, `splits_final.json` **1095/158**, and a final `SUCCESS` message. If the job stops at walltime, submit the same SBATCH again (no re-preprocessing of valid completed CTs). The script requests 16 CPU cores, 192GB RAM and runs 4 nnU-Net workers by default; `NN702_WORKERS=2` can be supplied for lower RAM pressure. The MI300X GPU is reserved for subsequent fullres `scripts/train_expanded_amos_tsv3_dataset702.sbatch`. No GPU speedup is assumed for CPU-only ITK/NumPy preprocessing.
 
 See `docs/research_evidence_register_2026-11-10.md` E17 for design and source audit.
+
+## Dataset702 MI300X training SUCCEEDED; full summary still needed — 2026-11-20 / confirmed Nov 23
+
+The 3D fullres original nnU-Net Dataset702 fold0 (1095 train / 158 development validation) **FINISHED** on Kelvin2:
+- Output log `nnunet702_expanded.*.out` ends `SUCCESS: expanded-data nnU-Net Dataset702 fold0 finished.`.
+- `Validation complete`, then `Mean Validation Dice: 0.8527264539063969` logged at **2026-11-20 17:10:22**. This is the nnU-Net validation aggregate, **not yet validated as patient-wise bilateral mean**.
+- Model checkpoints (239M each) saved in `nnunet_results/Dataset702_AMOSTotalSegAdrenalCT/nnUNetTrainer__nnUNetPlans__3d_fullres/fold_0/`: `checkpoint_best.pth` 2026-11-20 15:53, `checkpoint_final.pth` 2026-11-20 16:11.
+- `validation/summary.json`, `progress.png`, `training_log_2026_11_18_14_05_38.txt` exist in this fold folder. Full summary and SHA hashes are still unreported.
+- Numerous ROCm `GridwiseOp` and `DeviceGroupedConvBwdWeightTwoStage` workspace warnings appeared, but no terminal error: nnU-Net completed validation and SBATCH confirmed success.
+- Before claiming a publishable comparison, inspect `validation/summary.json` for foreground-class Dice/denominators and per-case results, preserve checkpoint SHA256 and run environment. Other AMOS and external scores are on DIFFERENT cohorts, not paired comparisons.
+
+Recommended next Kelvin2 command:
+
+```bash
+cd /mnt/userapps/isrcdl_apps/mfayemiwo/DaisyProject/adrenal_segmentation
+FOLD=nnunet_results/Dataset702_AMOSTotalSegAdrenalCT/nnUNetTrainer__nnUNetPlans__3d_fullres/fold_0
+cat "$FOLD/validation/summary.json" | head -n 100
+sha256sum "$FOLD/checkpoint_best.pth" "$FOLD/checkpoint_final.pth"
+```
+
+See E20 in `docs/research_evidence_register_2026-11-10.md`. Subsequent matched analog/refiner + true 3D SNN experiments and full-volume GPU-socket energy comparisons remain to be executed.
